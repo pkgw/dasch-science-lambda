@@ -1,0 +1,10 @@
+FROM ghcr.io/cargo-lambda/cargo-lambda:latest
+
+COPY ./build_script.sh /
+
+WORKDIR /app
+VOLUME /app
+VOLUME /usr/local/cargo/registry
+
+CMD [ "/build_script.sh" ]
+

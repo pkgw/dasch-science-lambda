@@ -1,0 +1,3 @@
+FROM public.ecr.aws/lambda/provided:al2023-x86_64
+COPY stage/dasch-science-lambda ${LAMBDA_RUNTIME_DIR}/bootstrap
+CMD [ "bootstrap" ]
