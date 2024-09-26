@@ -21,5 +21,17 @@ async fn func(event: LambdaEvent<Value>, dc: &aws_sdk_dynamodb::Client) -> Resul
     println!("fn name: {}", cfg.function_name);
     println!("version: {}\n", cfg.version);
 
+    let mut stream = dc
+        .scan()
+        .table_name("dasch_dev_refcat_apass")
+        .limit(256)
+        .into_paginator()
+        .items()
+        .send();
+
+    while let Some(item) = stream.next().await {
+        println!("   {:?}", item);
+    }
+
     Ok(json!({ "message": format!("Hello, {}!", first_name) }))
 }

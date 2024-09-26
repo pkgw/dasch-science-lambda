@@ -26,5 +26,11 @@ docker build -t dasch-science-lambda:latest -f Dockerfile.lambda .
 Run it locally:
 
 ```
-docker run --rm -p 9000:8080 dasch-science-lambda:latest
+docker run --rm -e AWS_REGION -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -p 9000:8080 dasch-science-lambda:latest
+```
+
+Test locally (placeholder):
+
+```
+curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{"firstName":"PKGW"}'
 ```
