@@ -1,7 +1,11 @@
 use aws_sdk_dynamodb::types::AttributeValue;
-use lambda_runtime::{Error, LambdaEvent};
+use lambda_runtime::{
+    streaming::{Body, Response, Sender},
+    Error, LambdaEvent,
+};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
+use std::sync::Arc;
 
 use crate::gscbin::D2R;
 
@@ -15,9 +19,20 @@ pub struct Request {
 
 pub async fn handle_querycat(
     event: LambdaEvent<Request>,
-    dc: &aws_sdk_dynamodb::Client,
-    binning: &crate::gscbin::GscBinning,
-) -> Result<Value, Error> {
+    dc: Arc<aws_sdk_dynamodb::Client>,
+    binning: Arc<crate::gscbin::GscBinning>,
+) -> Result<Response<Body>, Error> {
+    let (tx, rx) = Body::channel();
+    tokio::spawn(async move { inner(tx, event, dc, binning).await });
+    Ok(Response::from(rx))
+}
+
+async fn inner(
+    mut tx: Sender,
+    event: LambdaEvent<Request>,
+    dc: Arc<aws_sdk_dynamodb::Client>,
+    binning: Arc<crate::gscbin::GscBinning>,
+) -> Result<(), Error> {
     let (event, context) = event.into_parts();
     let cfg = context.env_config;
     println!("*** fn name={} version={}", cfg.function_name, cfg.version);
@@ -57,22 +72,31 @@ pub async fn handle_querycat(
     println!("+++ bounds: {:?}, {:?}", ra_bound_1, ra_bound_2);
 
     for ibin in bin0..=bin1 {
-        read_dec_bin(ibin, ra_bound_1.0, ra_bound_1.1, dc, binning).await?;
+        read_dec_bin(
+            ibin,
+            ra_bound_1.0,
+            ra_bound_1.1,
+            dc.clone(),
+            binning.clone(),
+        )
+        .await?;
 
         if let Some(b2) = ra_bound_2 {
-            read_dec_bin(ibin, b2.0, b2.1, dc, binning).await?;
+            read_dec_bin(ibin, b2.0, b2.1, dc.clone(), binning.clone()).await?;
         }
     }
 
-    Ok(json!({ "message": format!("Hello, {}!", event.refcat) }))
+    tx.send_data((json!({ "message": format!("Hello, {}!", event.refcat) }).to_string()).into())
+        .await?;
+    Ok(())
 }
 
 async fn read_dec_bin(
     dec_bin: usize,
     ra_min: f64,
     ra_max: f64,
-    dc: &aws_sdk_dynamodb::Client,
-    binning: &crate::gscbin::GscBinning,
+    dc: Arc<aws_sdk_dynamodb::Client>,
+    binning: Arc<crate::gscbin::GscBinning>,
 ) -> Result<(), Error> {
     let tbin0 = binning.get_total_bin(dec_bin, ra_min);
     let tbin1 = binning.get_total_bin(dec_bin, ra_max);
