@@ -1,8 +1,12 @@
-use lambda_runtime::{
-    service_fn,
-    streaming::{Body, Response},
-    Error, LambdaEvent,
-};
+//! DASCH data services
+//!
+//! Streaming lambdas are more expensive than buffered lambdas, which have a 6
+//! MB response limit. So we should buffer when possible.
+//!
+//! Annoyingly, the buffered response mechanism can *only* output JSON, so we
+//! can't emit CSV.
+
+use lambda_runtime::{service_fn, Error, LambdaEvent};
 use std::sync::Arc;
 
 mod gscbin;
@@ -22,6 +26,6 @@ async fn handler(
     event: LambdaEvent<querycat::Request>,
     dc: Arc<aws_sdk_dynamodb::Client>,
     binning: Arc<gscbin::GscBinning>,
-) -> Result<Response<Body>, Error> {
+) -> Result<Vec<String>, Error> {
     querycat::handle_querycat(event, dc, binning).await
 }
