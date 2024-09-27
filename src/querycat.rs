@@ -28,22 +28,22 @@ const EXTERNAL_COLUMNS: &[&str] = &[
 ];
 
 const INTERNAL_COLUMNS: &[&str] = &[
-    "ref_text",
-    "ref_number",
-    "gsc_bin64_chunk", // XXX Will need updating
-    "ra_deg",
-    "dec_deg",
-    "dra_arcsec",
-    "ddec_arcsec",
-    "pos_epoch",
-    "rapm",
-    "decpm",
-    "rasigmapm",
-    "decsigmapm",
+    "refText",
+    "refNumber",
+    "gscBinIndex",
+    "ra",
+    "dec",
+    "draAsec",
+    "ddecAsec",
+    "posEpoch",
+    "raPM",
+    "decPM",
+    "raSigmaPM",
+    "decSigmaPM",
     "stdmag",
     "color",
-    "vflag",
-    "magflag",
+    "vFlag",
+    "magFlag",
     "class",
 ];
 
@@ -142,8 +142,8 @@ async fn read_dec_bin(
 
         let mut stream = dc
             .query()
-            .table_name("dasch_dev_refcat_apass")
-            .expression_attribute_names("#p", "gsc_bin64_chunk") // todo: => index
+            .table_name("dasch-dev-dr7-refcat-apass")
+            .expression_attribute_names("#p", "gscBinIndex")
             .expression_attribute_values(":bin", AttributeValue::N(itbin.to_string()))
             .key_condition_expression("#p = :bin")
             .into_paginator()
@@ -155,12 +155,12 @@ async fn read_dec_bin(
             cells.clear();
 
             let ra_deg = item
-                .get("ra_deg")
+                .get("ra")
                 .and_then(|av| av.as_n().ok())
                 .and_then(|text| text.parse::<f64>().ok());
 
             let dec_deg = item
-                .get("dec_deg")
+                .get("dec")
                 .and_then(|av| av.as_n().ok())
                 .and_then(|text| text.parse::<f64>().ok());
 
@@ -181,9 +181,9 @@ async fn read_dec_bin(
 
             for col in INTERNAL_COLUMNS {
                 match *col {
-                    "ref_text" => {
+                    "refText" => {
                         let val = item
-                            .get("ref_number")
+                            .get("refNumber")
                             .and_then(|av| av.as_n().ok())
                             .and_then(|text| text.parse::<u64>().ok())
                             .map(|n| refnum_to_text(n))
@@ -191,7 +191,7 @@ async fn read_dec_bin(
                         cells.push(val);
                     }
 
-                    "dra_arcsec" => {
+                    "draAsec" => {
                         if let Some((d, _)) = &sep {
                             cells.push(format!("{d}"));
                         } else {
@@ -199,7 +199,7 @@ async fn read_dec_bin(
                         }
                     }
 
-                    "ddec_arcsec" => {
+                    "ddecAsec" => {
                         if let Some((_, d)) = &sep {
                             cells.push(format!("{d}"));
                         } else {
@@ -207,7 +207,7 @@ async fn read_dec_bin(
                         }
                     }
 
-                    "pos_epoch" => {
+                    "posEpoch" => {
                         cells.push("2000.000".to_string());
                     }
 
