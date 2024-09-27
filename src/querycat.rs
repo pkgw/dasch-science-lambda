@@ -1,13 +1,54 @@
+// TODO? serde-dynamo for strongly-typed handling?
+
 use aws_sdk_dynamodb::types::AttributeValue;
 use lambda_runtime::{
     streaming::{Body, Response, Sender},
     Error, LambdaEvent,
 };
 use serde::Deserialize;
-use serde_json::json;
 use std::sync::Arc;
 
 use crate::gscbin::D2R;
+
+const EXTERNAL_COLUMNS: &[&str] = &[
+    "ref_text",
+    "ref_number",
+    "gscBinIndex",
+    "raDeg",
+    "decDeg",
+    "draAsec",
+    "ddecAsec",
+    "posEpoch",
+    "pmRaMasyr",
+    "pmDecMasyr",
+    "uPMRaMasyr",
+    "uPMDecMasyr",
+    "stdmag",
+    "color",
+    "vFlag",
+    "magFlag",
+    "class",
+];
+
+const INTERNAL_COLUMNS: &[&str] = &[
+    "ref_text",
+    "ref_number",
+    "gscBinIndex",
+    "ra_deg",
+    "dec_deg",
+    "draAsec",
+    "ddecAsec",
+    "posEpoch",
+    "rapm",
+    "decpm",
+    "rasigmapm",
+    "decsigmapm",
+    "stdmag",
+    "color",
+    "vflag",
+    "magflag",
+    "class",
+];
 
 #[derive(Deserialize)]
 pub struct Request {
@@ -35,7 +76,10 @@ async fn inner(
 ) -> Result<(), Error> {
     let (event, context) = event.into_parts();
     let cfg = context.env_config;
-    println!("*** fn name={} version={}", cfg.function_name, cfg.version);
+    println!(
+        "*** fn name={} version={} refcat={}",
+        cfg.function_name, cfg.version, event.refcat
+    );
 
     let radius_deg = event.radius_arcsec / 3600.0;
     let min_dec = f64::max(event.dec_deg - radius_deg, -90.0);
@@ -71,8 +115,15 @@ async fn inner(
 
     println!("+++ bounds: {:?}, {:?}", ra_bound_1, ra_bound_2);
 
+    {
+        let mut s = EXTERNAL_COLUMNS.join("\t");
+        s.push('\n');
+        tx.send_data(s.into()).await?;
+    }
+
     for ibin in bin0..=bin1 {
-        read_dec_bin(
+        tx = read_dec_bin(
+            tx,
             ibin,
             ra_bound_1.0,
             ra_bound_1.1,
@@ -82,24 +133,24 @@ async fn inner(
         .await?;
 
         if let Some(b2) = ra_bound_2 {
-            read_dec_bin(ibin, b2.0, b2.1, dc.clone(), binning.clone()).await?;
+            tx = read_dec_bin(tx, ibin, b2.0, b2.1, dc.clone(), binning.clone()).await?;
         }
     }
 
-    tx.send_data((json!({ "message": format!("Hello, {}!", event.refcat) }).to_string()).into())
-        .await?;
     Ok(())
 }
 
 async fn read_dec_bin(
+    mut tx: Sender,
     dec_bin: usize,
     ra_min: f64,
     ra_max: f64,
     dc: Arc<aws_sdk_dynamodb::Client>,
     binning: Arc<crate::gscbin::GscBinning>,
-) -> Result<(), Error> {
+) -> Result<Sender, Error> {
     let tbin0 = binning.get_total_bin(dec_bin, ra_min);
     let tbin1 = binning.get_total_bin(dec_bin, ra_max);
+    let mut cells = Vec::new();
 
     for itbin in tbin0..=tbin1 {
         println!("+++ query: {dec_bin} {tbin0} {tbin1} {itbin}");
@@ -115,9 +166,28 @@ async fn read_dec_bin(
             .send();
 
         while let Some(item) = stream.next().await {
-            println!("***   {:?}", item);
+            let mut item = item?;
+            cells.clear();
+
+            for col in INTERNAL_COLUMNS {
+                match item.remove(*col) {
+                    None => {
+                        cells.push("".to_string());
+                    }
+
+                    Some(val) => match val {
+                        AttributeValue::N(s) => cells.push(s),
+                        AttributeValue::S(s) => cells.push(s),
+                        _ => cells.push("".to_string()),
+                    },
+                }
+            }
+
+            let mut s = cells.join("\t");
+            s.push('\n');
+            tx.send_data(s.into()).await?;
         }
     }
 
-    Ok(())
+    Ok(tx)
 }
