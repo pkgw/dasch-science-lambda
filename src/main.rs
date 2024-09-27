@@ -1,37 +1,24 @@
 use lambda_runtime::{service_fn, Error, LambdaEvent};
-use serde_json::{json, Value};
+use serde_json::Value;
+
+mod gscbin;
+mod querycat;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let config = aws_config::load_from_env().await;
     let client = aws_sdk_dynamodb::Client::new(&config);
+    let bin64 = gscbin::GscBinning::new64();
 
-    let func = service_fn(|event| func(event, &client));
+    let func = service_fn(|event| handler(event, &client, &bin64));
     lambda_runtime::run(func).await?;
     Ok(())
 }
 
-async fn func(event: LambdaEvent<Value>, dc: &aws_sdk_dynamodb::Client) -> Result<Value, Error> {
-    let (event, context) = event.into_parts();
-    let first_name = event["firstName"].as_str().unwrap_or("world");
-
-    println!("\nRID: {}", context.request_id);
-    println!("inv fn ARN: {}", context.invoked_function_arn);
-    let cfg = context.env_config;
-    println!("fn name: {}", cfg.function_name);
-    println!("version: {}\n", cfg.version);
-
-    let mut stream = dc
-        .scan()
-        .table_name("dasch_dev_refcat_apass")
-        .limit(256)
-        .into_paginator()
-        .items()
-        .send();
-
-    while let Some(item) = stream.next().await {
-        println!("   {:?}", item);
-    }
-
-    Ok(json!({ "message": format!("Hello, {}!", first_name) }))
+async fn handler(
+    event: LambdaEvent<querycat::Request>,
+    dc: &aws_sdk_dynamodb::Client,
+    binning: &gscbin::GscBinning,
+) -> Result<Value, Error> {
+    querycat::handle_querycat(event, dc, binning).await
 }

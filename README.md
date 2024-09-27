@@ -34,3 +34,11 @@ Test locally (placeholder):
 ```
 curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{"firstName":"PKGW"}'
 ```
+
+
+## Unmanaged resources to close out
+
+- `dasch_dev_refcat_apass` DynamoDB table
+- `dasch-dr7/dev` ECR private registry
+- `dasch-dev-dr7-querycat` Lambda
+- `dasch-dev-dr7-querycat-role-gw8usqt5` lambda exec role
