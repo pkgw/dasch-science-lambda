@@ -5,14 +5,14 @@ pub const D2R: f64 = 0.017453292519943295;
 pub struct GscBinning {
     bin_size: f64,
     dec_bins: usize,
-    total_gsc_bins: usize,
-    max_ra_bins: usize,
+    // total_gsc_bins: usize,
+    // max_ra_bins: usize,
     master_index: Vec<GscBinIndex>,
 }
 
 #[derive(Debug)]
 struct GscBinIndex {
-    declination: f64,
+    // declination: f64,
     start_bin: usize,
     num_bins: usize,
 }
@@ -36,7 +36,7 @@ impl GscBinning {
                 (360. / bin_size * f64::cos((declination + bin_size / 2.) * D2R)) as usize;
 
             master_index.push(GscBinIndex {
-                declination,
+                // declination,
                 start_bin: ra_sum,
                 num_bins: num_ra_bins,
             });
@@ -52,8 +52,8 @@ impl GscBinning {
         GscBinning {
             bin_size,
             dec_bins,
-            total_gsc_bins,
-            max_ra_bins,
+            // total_gsc_bins,
+            // max_ra_bins,
             master_index,
         }
     }
