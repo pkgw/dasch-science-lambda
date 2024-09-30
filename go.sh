@@ -1,5 +1,10 @@
 #! /bin/bash
 
+if [ -z "$AWS_REGION" -o -z "$AWS_ACCESS_KEY_ID" -o -z "$AWS_SECRET_ACCESS_KEY" ] ; then
+  echo >&2 "fatal: need to set \$AWS_REGION, \$AWS_ACCESS_KEY_ID, and/or \$AWS_SECRET_ACCESS_KEY"
+  exit 1
+fi
+
 set -xeuo pipefail
 
 cargo check
