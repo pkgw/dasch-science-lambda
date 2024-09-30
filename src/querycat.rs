@@ -7,6 +7,8 @@ use serde::Deserialize;
 use crate::gscbin::D2R;
 use crate::refnums::refnum_to_text;
 
+const ENVIRONMENT: &str = "dev";
+
 const EXTERNAL_COLUMNS: &[&str] = &[
     "ref_text",
     "ref_number",
@@ -63,17 +65,36 @@ pub async fn handle_querycat(
     let mut lines = Vec::new();
     let (request, context) = event.into_parts();
     let cfg = context.env_config;
-    println!(
-        "*** fn name={} version={} refcat={}",
-        cfg.function_name, cfg.version, request.refcat
-    );
+    println!("*** fn name={} version={}", cfg.function_name, cfg.version);
 
+    // Validation
+
+    match request.refcat.as_ref() {
+        "apass" | "atlas" => {}
+        _ => {
+            return Err("illegal refcat parameter".into());
+        }
+    }
+
+    // Use this logic style to catch NaNs:
+    if !(request.ra_deg >= 0. && request.ra_deg <= 360.) {
+        return Err("illegal ra_deg parameter".into());
+    }
+
+    if !(request.dec_deg >= -90. && request.dec_deg <= 90.) {
+        return Err("illegal dec_deg parameter".into());
+    }
+
+    if !(request.radius_arcsec > 0. && request.radius_arcsec < 3600.) {
+        return Err("illegal radius_arcsec parameter".into());
+    }
+
+    let cat_table = format!("dasch-{}-dr7-refcat-{}", ENVIRONMENT, request.refcat);
     let radius_deg = request.radius_arcsec / 3600.0;
     let min_dec = f64::max(request.dec_deg - radius_deg, -90.0);
     let max_dec = f64::min(request.dec_deg + radius_deg, 90.0);
     let bin0 = binning.get_dec_bin(min_dec);
     let bin1 = binning.get_dec_bin(max_dec);
-    println!("+++ bins: {bin0} {bin1}");
 
     let cos_dec = f64::min(f64::cos(min_dec * D2R), f64::cos(max_dec * D2R));
 
@@ -100,13 +121,12 @@ pub async fn handle_querycat(
         }
     };
 
-    println!("+++ bounds: {:?}, {:?}", ra_bound_1, ra_bound_2);
-
     lines.push(EXTERNAL_COLUMNS.join(","));
 
     for ibin in bin0..=bin1 {
         lines = read_dec_bin(
             lines,
+            &cat_table,
             ibin,
             ra_bound_1.0,
             ra_bound_1.1,
@@ -117,7 +137,8 @@ pub async fn handle_querycat(
         .await?;
 
         if let Some(b2) = ra_bound_2 {
-            lines = read_dec_bin(lines, ibin, b2.0, b2.1, &request, dc, binning).await?;
+            lines =
+                read_dec_bin(lines, &cat_table, ibin, b2.0, b2.1, &request, dc, binning).await?;
         }
     }
 
@@ -126,6 +147,7 @@ pub async fn handle_querycat(
 
 async fn read_dec_bin(
     mut lines: Vec<String>,
+    cat_table: &str,
     dec_bin: usize,
     box_ra_min: f64,
     box_ra_max: f64,
@@ -154,11 +176,9 @@ async fn read_dec_bin(
         };
 
     for itbin in tbin0..=tbin1 {
-        println!("+++ query: {dec_bin} {tbin0} {tbin1} {itbin}");
-
         let mut stream = dc
             .query()
-            .table_name("dasch-dev-dr7-refcat-apass")
+            .table_name(cat_table)
             .expression_attribute_names("#p", "gscBinIndex")
             .expression_attribute_values(":bin", AttributeValue::N(itbin.to_string()))
             .key_condition_expression("#p = :bin")
@@ -197,7 +217,7 @@ async fn read_dec_bin(
                 continue;
             }
 
-            let factor = (D2R * 0.5 * (dec_deg + request.dec_deg)).cos();
+            let factor = (D2R * dec_deg).cos();
 
             // If the search box spans the RA = 0 = 360 line, this function will
             // be called twice to handle the wraparound, so we can also be
@@ -223,6 +243,8 @@ async fn read_dec_bin(
             } else if delta_ra > 180. {
                 delta_ra -= 360.;
             }
+
+            let factor = (D2R * 0.5 * (dec_deg + request.dec_deg)).cos();
 
             let sep = (
                 3600. * factor * delta_ra,
