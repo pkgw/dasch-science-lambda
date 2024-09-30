@@ -82,7 +82,7 @@ impl GscBinning {
             ra_deg += 360.;
         }
 
-        while ra_deg >= 360. {
+        while ra_deg > 360. {
             ra_deg -= 360.;
         }
 
