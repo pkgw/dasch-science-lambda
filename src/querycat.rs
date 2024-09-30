@@ -127,15 +127,31 @@ pub async fn handle_querycat(
 async fn read_dec_bin(
     mut lines: Vec<String>,
     dec_bin: usize,
-    ra_min: f64,
-    ra_max: f64,
+    box_ra_min: f64,
+    box_ra_max: f64,
     request: &Request,
     dc: &aws_sdk_dynamodb::Client,
     binning: &crate::gscbin::GscBinning,
 ) -> Result<Vec<String>, Error> {
-    let tbin0 = binning.get_total_bin(dec_bin, ra_min);
-    let tbin1 = binning.get_total_bin(dec_bin, ra_max);
+    let tbin0 = binning.get_total_bin(dec_bin, box_ra_min);
+    let tbin1 = binning.get_total_bin(dec_bin, box_ra_max);
     let mut cells = Vec::new();
+
+    let radius_deg = request.radius_arcsec / 3600.0;
+
+    // For computing RA separations below -- the "effective" RA of the search
+    // center might need to vary if we've partitioned the search into two
+    // sub-boxes in RA.
+    let eff_search_ra = request.ra_deg
+        + if request.ra_deg < box_ra_min {
+            // Our box has RA ~ 359 while the search center has RA ~ 1.
+            360.
+        } else if request.ra_deg > box_ra_max {
+            // Our box has RA ~ 1 while the search center has RA ~ 359.
+            -360.
+        } else {
+            0.
+        };
 
     for itbin in tbin0..=tbin1 {
         println!("+++ query: {dec_bin} {tbin0} {tbin1} {itbin}");
@@ -164,20 +180,54 @@ async fn read_dec_bin(
                 .and_then(|av| av.as_n().ok())
                 .and_then(|text| text.parse::<f64>().ok());
 
-            let sep = if let (Some(ra), Some(dec)) = (ra_deg, dec_deg) {
-                let factor = (D2R * 0.5 * (dec + request.dec_deg)).cos();
-                let mut delta_ra = request.ra_deg - ra;
-
-                if delta_ra < -180. {
-                    delta_ra += 360.;
-                } else if delta_ra > 180. {
-                    delta_ra -= 360.;
-                }
-
-                Some((3600. * factor * delta_ra, 3600. * (request.dec_deg - dec)))
-            } else {
-                None
+            let (ra_deg, dec_deg) = match (ra_deg, dec_deg) {
+                (Some(r), Some(d)) => (r, d),
+                _ => continue,
             };
+
+            // Now we can evaluate if this source actually matches the
+            // positional search. Note that we're actually evaluating a box, not
+            // a conical radius.
+            //
+            // Unlike "classical" querycat, we ignore the uncertainty introduced
+            // by the proper motion term.
+
+            // If the limiting values go unphysical, no problem.
+            if dec_deg < request.dec_deg - radius_deg || dec_deg > request.dec_deg + radius_deg {
+                continue;
+            }
+
+            let factor = (D2R * 0.5 * (dec_deg + request.dec_deg)).cos();
+
+            // If the search box spans the RA = 0 = 360 line, this function will
+            // be called twice to handle the wraparound, so we can also be
+            // cavalier with the limits here.
+
+            let (min_ra, max_ra) = if factor <= 0. {
+                (0., 360.)
+            } else {
+                (
+                    eff_search_ra - radius_deg / factor,
+                    eff_search_ra + radius_deg / factor,
+                )
+            };
+
+            if ra_deg < min_ra || ra_deg > max_ra {
+                continue;
+            }
+
+            let mut delta_ra = request.ra_deg - ra_deg;
+
+            if delta_ra < -180. {
+                delta_ra += 360.;
+            } else if delta_ra > 180. {
+                delta_ra -= 360.;
+            }
+
+            let sep = (
+                3600. * factor * delta_ra,
+                3600. * (request.dec_deg - dec_deg),
+            );
 
             for col in INTERNAL_COLUMNS {
                 match *col {
@@ -192,19 +242,11 @@ async fn read_dec_bin(
                     }
 
                     "draAsec" => {
-                        if let Some((d, _)) = &sep {
-                            cells.push(format!("{d}"));
-                        } else {
-                            cells.push("".to_string());
-                        }
+                        cells.push(format!("{}", sep.0));
                     }
 
                     "ddecAsec" => {
-                        if let Some((_, d)) = &sep {
-                            cells.push(format!("{d}"));
-                        } else {
-                            cells.push("".to_string());
-                        }
+                        cells.push(format!("{}", sep.1));
                     }
 
                     "posEpoch" => {
