@@ -3,9 +3,13 @@ name = "dasch-science-lambda"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = ["crates/fitswcs-sys", "."]
+
 [dependencies]
 aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-dynamodb = "1.47"
+fitswcs-sys = { path = "crates/fitswcs-sys", version = "0.1.0" }
 lambda_runtime = "0.13"
 serde = "1.0"
 serde_json = "1.0"

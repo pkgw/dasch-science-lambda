@@ -1,0 +1,13 @@
+[package]
+name = "fitswcs-sys"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "^1"
+libc = "0.2"
+libz-sys = { version = "1.1", features = ["static"] }
+
+[build-dependencies]
+pkg-config = "0.3"
+autotools = ">= 0.2.5"
