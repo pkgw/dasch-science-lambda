@@ -3,7 +3,7 @@
 //! It was hard to find good examples of how a Rust Lambda implementation should look. Here's
 //! one good one:
 //!
-//! https://github.com/awslabs/aws-sdk-rust/tree/main/examples/cross_service/photo_asset_management
+//! <https://github.com/awslabs/aws-sdk-rust/tree/main/examples/cross_service/photo_asset_management>
 //!
 //! Streaming lambdas are more expensive than buffered lambdas, which have a 6
 //! MB response limit. So we should buffer when possible.
