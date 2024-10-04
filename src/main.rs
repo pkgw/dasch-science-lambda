@@ -8,9 +8,13 @@
 
 use lambda_runtime::{service_fn, Error, LambdaEvent};
 
+mod fitsfile;
 mod gscbin;
 mod querycat;
 mod refnums;
+mod s3buffer;
+mod s3fits;
+mod wcs;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
