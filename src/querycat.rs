@@ -7,8 +7,6 @@ use serde::Deserialize;
 use crate::gscbin::D2R;
 use crate::refnums::refnum_to_text;
 
-const ENVIRONMENT: &str = "dev";
-
 const EXTERNAL_COLUMNS: &[&str] = &[
     "ref_text",
     "ref_number",
@@ -89,7 +87,7 @@ pub async fn handle_querycat(
         return Err("illegal radius_arcsec parameter".into());
     }
 
-    let cat_table = format!("dasch-{}-dr7-refcat-{}", ENVIRONMENT, request.refcat);
+    let cat_table = format!("dasch-{}-dr7-refcat-{}", super::ENVIRONMENT, request.refcat);
     let radius_deg = request.radius_arcsec / 3600.0;
     let min_dec = f64::max(request.dec_deg - radius_deg, -90.0);
     let max_dec = f64::min(request.dec_deg + radius_deg, 90.0);

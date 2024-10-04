@@ -13,6 +13,7 @@
 
 use lambda_runtime::{service_fn, Error};
 
+mod cutout;
 mod fitsfile;
 mod gscbin;
 mod querycat;
@@ -20,6 +21,8 @@ mod refnums;
 mod s3buffer;
 mod s3fits;
 mod wcs;
+
+pub const ENVIRONMENT: &str = "dev";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -29,9 +32,10 @@ async fn main() -> Result<(), Error> {
     let handler = std::env::var("_HANDLER").expect("_HANDLER provided");
     println!("_HANDLER: {handler}");
 
+    // TEMPORARY: hardcoding cutout service
     let client = aws_sdk_dynamodb::Client::new(&config);
-    let bin64 = gscbin::GscBinning::new64();
-    let func = service_fn(|event| querycat::handle_querycat(event, &client, &bin64));
+    //let bin64 = gscbin::GscBinning::new64();
+    let func = service_fn(|event| cutout::handle_cutout(event, &client));
     lambda_runtime::run(func).await?;
     Ok(())
 }
