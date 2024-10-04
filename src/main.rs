@@ -32,6 +32,9 @@ async fn main() -> Result<(), Error> {
     let handler = std::env::var("_HANDLER").expect("_HANDLER provided");
     println!("_HANDLER: {handler}");
 
+    // TODO: once-cell this:
+    s3fits::register(config.clone());
+
     // TEMPORARY: hardcoding cutout service
     let client = aws_sdk_dynamodb::Client::new(&config);
     //let bin64 = gscbin::GscBinning::new64();

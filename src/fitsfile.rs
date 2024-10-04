@@ -133,7 +133,7 @@ impl FitsFile {
                 &mut status,
             ));
 
-            let wcs = wcs::Wcs::new(header, nkeys)?;
+            let wcs = wcs::Wcs::new_raw(header, nkeys)?;
             libc::free(header as *mut _);
             wcs
         };

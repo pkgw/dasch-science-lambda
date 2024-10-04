@@ -20,8 +20,8 @@ macro_rules! try_wcslib {
 }
 
 impl Wcs {
-    /// Initialize WCS from FITS headers.
-    pub unsafe fn new(header: *const c_char, nkeys: c_int) -> Result<Self> {
+    /// Initialize WCS from FITS headers, based on a raw pointer.
+    pub unsafe fn new_raw(header: *const c_char, nkeys: c_int) -> Result<Self> {
         let mut handle: wcslib::WcsPrm = std::ptr::null_mut();
         let mut nreject: c_int = 0;
         let mut nwcs: c_int = 0;

@@ -9,11 +9,18 @@
 //! Fortunately, our resulting cutout size stays within the 6 MB limit given to
 //! buffered Lambdas, which means we can operate in the cheaper buffered mode.
 //! The result of a buffered Lambda can only be JSON, so we return a complete
-//! FITS file as a Base64-encoded string. (TODO: gzip it.)
+//! gzipped FITS file as a Base64-encoded string.
 
 use aws_sdk_dynamodb::types::AttributeValue;
+use base64::{engine::general_purpose::STANDARD, write::EncoderWriter};
+use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use lambda_runtime::{Error, LambdaEvent};
+use ndarray::{s, Array, Axis, Ix2};
+use ndarray_interp::interp2d;
 use serde::Deserialize;
+use std::io::{prelude::*, ErrorKind};
+
+use crate::{fitsfile::FitsFile, wcs::Wcs};
 
 #[derive(Deserialize)]
 pub struct Request {
@@ -47,6 +54,11 @@ struct PlatesMosaicResult {
     s3_key_template: String,
 }
 
+const OUTPUT_IMAGE_HALFSIZE: usize = 417;
+const OUTPUT_IMAGE_FULLSIZE: usize = 2 * OUTPUT_IMAGE_HALFSIZE + 1;
+const OUTPUT_IMAGE_NPIX: usize = OUTPUT_IMAGE_FULLSIZE * OUTPUT_IMAGE_FULLSIZE;
+const OUTPUT_IMAGE_PIXSCALE: f64 = 0.0004; // deg/pix
+
 pub async fn handle_cutout(
     event: LambdaEvent<Request>,
     dc: &aws_sdk_dynamodb::Client,
@@ -54,6 +66,16 @@ pub async fn handle_cutout(
     let (request, context) = event.into_parts();
     let cfg = context.env_config;
     println!("*** fn name={} version={}", cfg.function_name, cfg.version);
+
+    // Early validation, with NaN-sensitive logic
+
+    if !(request.center_ra_deg >= 0. && request.center_ra_deg <= 360.) {
+        return Err("illegal center_ra_deg parameter".into());
+    }
+
+    if !(request.center_dec_deg >= -90. && request.center_dec_deg <= 90.) {
+        return Err("illegal center_dec_deg parameter".into());
+    }
 
     // Get the information we need about this plate and validate the basic request.
 
@@ -96,7 +118,7 @@ pub async fn handle_cutout(
 
     if request.solution_number >= astrom_data.n_solutions {
         return Err(format!(
-            "requested astrometric solution #{} (0-based) for plate `{}` but it only has {} solutins",
+            "requested astrometric solution #{} (0-based) for plate `{}` but it only has {} solutions",
             request.solution_number,
             request.plate_id,
             astrom_data.n_solutions
@@ -104,7 +126,191 @@ pub async fn handle_cutout(
         .into());
     }
 
-    //
+    // IMPLEMENT THESE:
 
-    Ok("yo".to_owned())
+    if astrom_data.rotation_delta != 0 {
+        return Err(format!(
+            "XXX rotation_delta {} for plate `{}`",
+            astrom_data.rotation_delta, request.plate_id,
+        )
+        .into());
+    }
+
+    if request.solution_number != 0 {
+        return Err(format!(
+            "XXX solnum {} for plate `{}`",
+            request.solution_number, request.plate_id,
+        )
+        .into());
+    }
+
+    // We can compute the target WCS and start building the output FITS.
+
+    let mut dest_fits = FitsFile::create_mem()?;
+    dest_fits.write_square_image_header(OUTPUT_IMAGE_FULLSIZE as u64)?;
+    dest_fits.set_string_header("CTYPE1", "RA---TAN")?;
+    dest_fits.set_string_header("CTYPE2", "DEC--TAN")?;
+    dest_fits.set_string_header("CUNIT1", "deg")?;
+    dest_fits.set_string_header("CUNIT2", "deg")?;
+    dest_fits.set_f64_header("CRVAL1", request.center_ra_deg)?;
+    dest_fits.set_f64_header("CRVAL2", request.center_dec_deg)?;
+    dest_fits.set_f64_header("CD1_1", -OUTPUT_IMAGE_PIXSCALE)?;
+    dest_fits.set_f64_header("CD2_2", OUTPUT_IMAGE_PIXSCALE)?;
+    dest_fits.set_f64_header("CRPIX1", OUTPUT_IMAGE_HALFSIZE as f64 + 1.)?; // 1-based pixel coords
+    dest_fits.set_f64_header("CRPIX2", OUTPUT_IMAGE_HALFSIZE as f64 + 1.)?;
+    let mut dest_wcs = dest_fits.get_wcs()?;
+    let dest_world = dest_wcs.sample_world_square(OUTPUT_IMAGE_FULLSIZE)?;
+
+    // Figure out where we land on the source image.
+
+    let header_dec = GzDecoder::new(&astrom_data.b01_header_gz[..]);
+    let mut src_wcs = load_b01_header(header_dec)?;
+    let destpix = src_wcs.world_to_pixel(dest_world)?;
+
+    let dp_flat = destpix.view().into_shape((OUTPUT_IMAGE_NPIX, 2)).unwrap();
+    let mins = dp_flat.map_axis(Axis(0), |view| {
+        view.into_iter().copied().reduce(f64::min).unwrap()
+    });
+    let maxs = dp_flat.map_axis(Axis(0), |view| {
+        view.into_iter().copied().reduce(f64::max).unwrap()
+    });
+    dbg!(&mins, &maxs);
+
+    let xmin = isize::max(mins[0].floor() as isize, 0) as usize;
+    let xmax = isize::min(maxs[0].ceil() as isize, mos_data.b01_width as isize - 1) as usize;
+    let ymin = isize::max(mins[1].floor() as isize, 0) as usize;
+    let ymax = isize::min(maxs[1].ceil() as isize, mos_data.b01_height as isize - 1) as usize;
+    dbg!(xmin, xmax, ymin, ymax);
+
+    let src_nx = xmax + 1 - xmin;
+    let src_ny = ymax + 1 - ymin;
+    dbg!(src_nx, src_ny);
+
+    if src_nx < 1 || src_ny < 1 {
+        return Err(format!(
+            "plate `{}` solnum {} does not overlap the target region",
+            request.plate_id, request.solution_number,
+        )
+        .into());
+    }
+
+    // Get the source pixels.
+    //
+    // Gross: as far as I can see, since we're bridging across C code, the
+    // CFITSIO S3 I/O callbacks can't leverage the main async runtime even
+    // though they in turn call async code. I believe that we need to create
+    // this "blocking" wrapper thread, which in turn creates its own runtime and
+    // does the S3 work.
+
+    println!(
+        "to fetch: {} rows, {} cols, {} total pixels",
+        src_ny,
+        src_nx,
+        src_nx * src_ny
+    );
+
+    let s3path = mos_data
+        .s3_key_template
+        .replace("{bin}", "01")
+        .replace("{tnx}", "_tnx");
+    let s3url = format!("s3://dasch-prod-user/{s3path}");
+
+    let src_data = tokio::task::spawn_blocking(move || -> Result<Array<i16, Ix2>, Error> {
+        let mut fits = FitsFile::open(s3url)?;
+        fits.move_to_hdu(1)?;
+        Ok(fits.read_rectangle(xmin, ymin, src_nx, src_ny)?)
+    })
+    .await??;
+
+    // Perform the interpolation
+    //
+    // ndarray_interp requires that the x, y, and data types must all be the
+    // same. So we have to translate our image data to f64.
+
+    let xs = destpix
+        .slice(s![.., .., 0])
+        .to_owned()
+        .into_shape(OUTPUT_IMAGE_NPIX)
+        .unwrap()
+        - xmin as f64;
+    let ys = destpix
+        .slice(s![.., .., 1])
+        .to_owned()
+        .into_shape(OUTPUT_IMAGE_NPIX)
+        .unwrap()
+        - ymin as f64;
+
+    let src_data = src_data.mapv(|e| e as f64);
+    let interp = interp2d::Interp2DBuilder::new(src_data).build()?;
+    let mut dest_data: Array<f64, _> = Array::zeros(xs.len());
+    interp.interp_array_into(&ys, &xs, dest_data.view_mut())?;
+    let dest_data = dest_data
+        .into_shape((OUTPUT_IMAGE_FULLSIZE, OUTPUT_IMAGE_FULLSIZE))
+        .unwrap();
+    let dest_data = dest_data.mapv(|e| e as i16);
+
+    // Emit
+
+    dest_fits.write_pixels(&dest_data)?;
+
+    let mut dest_gz_b64 = Vec::new();
+
+    {
+        let dest_gz = EncoderWriter::new(&mut dest_gz_b64, &STANDARD);
+        let mut dest = GzEncoder::new(dest_gz, Compression::default());
+        dest_fits.into_stream(&mut dest)?;
+    }
+
+    let dest_gz_b64 = String::from_utf8(dest_gz_b64)?;
+    Ok(dest_gz_b64)
+}
+
+fn load_b01_header<R: Read>(mut src: R) -> Result<Wcs, Error> {
+    let mut header = Vec::new();
+    let mut n_rec = 0;
+    let mut buf = vec![0; 80];
+
+    loop {
+        // The final record does not have a newline character,
+        // so we can't read in chunks of 81.
+
+        if let Err(e) = src.read_exact(&mut buf[..]) {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                break;
+            } else {
+                return Err(e.into());
+            }
+        }
+
+        // TAN/TPV hack.
+        if buf.starts_with(b"CTYPE") {
+            // With the rigid FITS keyword structure, we know exactly where to
+            // look:
+            if buf[15..].starts_with(b"-TAN") {
+                buf[15..19].clone_from_slice(b"-TPV");
+            }
+        }
+
+        header.append(&mut buf);
+        n_rec += 1;
+        buf.resize(80, 0);
+
+        if let Err(e) = src.read_exact(&mut buf[..1]) {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                break;
+            } else {
+                return Err(e.into());
+            }
+        }
+
+        if buf[0] != b'\n' {
+            return Err(format!(
+                "malformatted ASCII-FITS header: expected newline, got {:x}",
+                buf[0]
+            )
+            .into());
+        }
+    }
+
+    Ok(unsafe { Wcs::new_raw(header.as_ptr() as *const _, n_rec) }?)
 }
