@@ -676,6 +676,8 @@ dependencies = [
  "ndarray-interp",
  "once_cell",
  "serde",
+ "serde_bytes",
+ "serde_dynamo",
  "serde_json",
  "tokio",
 ]
@@ -1708,6 +1710,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_bytes"
+version = "0.11.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "387cc504cb06bb40a96c8e04e951fe01854cf6bc921053c954e4a606d9675c6a"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_derive"
 version = "1.0.210"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1716,6 +1727,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "serde_dynamo"
+version = "4.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e36c1b1792cfd9de29eb373ee6a4b74650369c096f55db7198ceb7b8921d1f7f"
+dependencies = [
+ "aws-sdk-dynamodb",
+ "base64 0.21.7",
+ "serde",
 ]
 
 [[package]]

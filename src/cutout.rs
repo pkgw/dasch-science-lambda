@@ -23,6 +23,30 @@ pub struct Request {
     center_dec_deg: f64,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatesResult {
+    astrometry: Option<PlatesAstrometryResult>,
+    mosaic: Option<PlatesMosaicResult>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatesAstrometryResult {
+    #[serde(with = "serde_bytes")]
+    b01_header_gz: Vec<u8>,
+    n_solutions: usize,
+    rotation_delta: isize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatesMosaicResult {
+    b01_height: usize,
+    b01_width: usize,
+    s3_key_template: String,
+}
+
 pub async fn handle_cutout(
     event: LambdaEvent<Request>,
     dc: &aws_sdk_dynamodb::Client,
@@ -54,26 +78,15 @@ pub async fn handle_cutout(
         .item
         .ok_or_else(|| -> Error { format!("no such plate_id `{}`", request.plate_id).into() })?;
 
-    let mos_data = item.get("mosaic").ok_or_else(|| -> Error {
+    let item: PlatesResult = serde_dynamo::from_item(item)?;
+    let mos_data = item.mosaic.ok_or_else(|| -> Error {
         format!(
             "plate `{}` has no registered FITS mosaic information (never scanned?)",
             request.plate_id
         )
         .into()
     })?;
-
-    let mos_data = match mos_data {
-        AttributeValue::M(m) => m,
-        _ => {
-            return Err(format!(
-                "database schema error on `mosaic` for plate `{}`",
-                request.plate_id
-            )
-            .into())
-        }
-    };
-
-    let astrom_data = item.get("astrometry").ok_or_else(|| -> Error {
+    let astrom_data = item.astrometry.ok_or_else(|| -> Error {
         format!(
             "plate `{}` has no registered astrometric solutions",
             request.plate_id
@@ -81,72 +94,17 @@ pub async fn handle_cutout(
         .into()
     })?;
 
-    let astrom_data = match astrom_data {
-        AttributeValue::M(m) => m,
-        _ => {
-            return Err(format!(
-                "database schema error on `astrometry` for plate `{}`",
-                request.plate_id
-            )
-            .into())
-        }
-    };
-
-    let n_solutions = astrom_data.get("nSolutions").ok_or_else(|| -> Error {
-        format!(
-            "plate `{}` has no registered astrometric solutions",
-            request.plate_id
-        )
-        .into()
-    })?;
-
-    let n_solutions: usize = match n_solutions {
-        AttributeValue::N(s) => str::parse(s).map_err(|e| -> Error {
-            format!(
-                "database content error on `astrometry.nSolutions` for plate `{}`: {}",
-                request.plate_id, e
-            )
-            .into()
-        })?,
-        _ => {
-            return Err(format!(
-                "database schema error on `astrometry.nSolutions` for plate `{}`",
-                request.plate_id
-            )
-            .into())
-        }
-    };
-
-    if request.solution_number >= n_solutions {
+    if request.solution_number >= astrom_data.n_solutions {
         return Err(format!(
             "requested astrometric solution #{} (0-based) for plate `{}` but it only has {} solutins",
             request.solution_number,
             request.plate_id,
-            n_solutions
+            astrom_data.n_solutions
         )
         .into());
     }
 
     //
-
-    let s3template = mos_data.get("s3KeyTemplate").ok_or_else(|| -> Error {
-        format!(
-            "plate `{}` has no registered FITS mosaic file in cloud storage (never uploaded??)",
-            request.plate_id
-        )
-        .into()
-    })?;
-
-    let s3template = match s3template {
-        AttributeValue::S(s) => s,
-        _ => {
-            return Err(format!(
-                "database schema error on `mosaic.s3KeyTemplate` for plate `{}`",
-                request.plate_id
-            )
-            .into())
-        }
-    };
 
     Ok("yo".to_owned())
 }
