@@ -121,6 +121,7 @@ struct PlatesResult {
     astrometry: Option<PlatesAstrometryResult>,
     mosaic: Option<PlatesMosaicResult>,
     plate_id: String,
+    plate_number: usize,
     series: String,
 }
 
@@ -137,7 +138,7 @@ struct PlatesAstrometryResult {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PlatesExposureResult {
-    source: Option<String>,
+    center_source: Option<String>,
     date_acc_days: Option<f64>,
     date_source: Option<String>,
     dec_deg: Option<f64>,
@@ -227,7 +228,24 @@ pub async fn handle_queryexps(
     // Get the detailed plate information. DynamoDB provides a batch_get_item
     // endpoint that manages to meet our needs, but it's annoying to use.
 
-    let mut rows = Vec::new();
+    let mut rows = vec!["series\t\
+        platenum\t\
+        scannum\t\
+        mosnum\t\
+        expnum\t\
+        solnum\t\
+        class\t\
+        ra\t\
+        dec\t\
+        exptime\t\
+        jd\t\
+        epoch\t\
+        wcssource\t\
+        scandate\t\
+        mosdate\t\
+        centerdist\t\
+        edgedist"
+        .to_owned()];
 
     loop {
         let mut keys = Vec::new();
@@ -257,6 +275,7 @@ pub async fn handle_queryexps(
                 mosaic.mosNum,\
                 mosaic.scanNum,\
                 plateId,\
+                plateNumber,\
                 series",
             )
             .build()?;
@@ -397,40 +416,51 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
     // Finally we're ready to go
 
     for solexp in solexps {
+        #[allow(unused_assignments)]
         let mut maybe_temp_wcs = None;
         let mut this_wcs = None;
         let mut this_width = width;
         let mut this_height = height;
+        let mut this_exp = None;
 
         if solexp.sol_num >= 0 && (solexp.sol_num as usize) < n_solutions {
             // Yay, we have real WCS for this one. We can only get here if solved_wcs is Some.
             this_wcs = Some(solved_wcs.as_mut().unwrap());
         }
 
-        // If we don't have a real solution, we may be able to do an approximate
-        // test based on the coarse exposure data. This only works if we have a
-        // pixel scale and if the exposure has useful centering information.
+        // We want to find the exposure record of interest. The list of
+        // exposures is sorted to match the full solutions, and so is *not*
+        // in exposure order, and also contains null rows.
 
-        if this_wcs.is_none() && !pixel_scale.is_none() && solexp.exp_num >= 0 {
-            // We need to find the exposure record of interest. The list of
-            // exposures is sorted to match the full solutions, and so is *not*
-            // in exposure order, and also contains null rows.
-
+        if solexp.exp_num >= 0 {
             for maybe_exp in astrom.map(|a| &a.exposures[..]).unwrap_or(&[]) {
                 if let Some(exp) = maybe_exp {
-                    if exp.number == solexp.exp_num {
-                        // We actually have a match! It *should* have useful
+                    if exp.number != solexp.exp_num {
+                        continue;
+                    }
+
+                    // We have a match!
+
+                    this_exp = maybe_exp.as_ref();
+
+                    // If we don't have a real WCS solution yet, we may be able
+                    // to do an approximate test based on the coarse exposure
+                    // data. This only works if we have a pixel scale and if the
+                    // exposure has useful centering information.
+
+                    if this_wcs.is_none() && !pixel_scale.is_none() {
+                        // Every exposure of interest *should* have useful
                         // RA/Dec info since otherwise it shouldn't be in our
                         // bin list, but let's check.
 
                         if let (Some(ra), Some(dec)) = (exp.ra_deg, exp.dec_deg) {
                             // These are all placeholder values observed in the
-                            // data. We should strip them out of the DynamoDB.
+                            // data. We should strip them out of the DynamoDB:
 
                             if ra != 999. && ra != -99. && dec != 99. && dec != -99. {
-                                // We found the exposure, and we can use it.
-                                // This is a dumb way to synthesize WCS, but
-                                // here we are.
+                                // We found the exposure, and we can use it for
+                                // WCS. This is a dumb way to synthesize WCS,
+                                // but here we are.
 
                                 let ps = pixel_scale.unwrap(); // checked above
 
@@ -464,11 +494,11 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
                                 }
                             }
                         }
-
-                        // Regardless of how well that all went, we're done
-                        // searching.
-                        break;
                     }
+
+                    // Regardless of how well that all went, we're done
+                    // searching.
+                    break;
                 }
             }
         }
@@ -495,9 +525,72 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
             continue;
         }
 
-        // The point of interest actually intersects the plate, we think!
+        // The point of interest actually intersects the plate!
 
-        rows.push(format!("hit: {}/{:?}", plate.plate_id, solexp));
+        let scan_num = mos.map(|m| m.scan_num).unwrap_or(-1);
+        let mos_num = mos.map(|m| m.mos_num).unwrap_or(-1);
+        let plate_class = "";
+
+        let center_x = 0.5 * (this_width as f64 - 1.);
+        let center_y = 0.5 * (this_height as f64 - 1.);
+        let center_text = this_wcs
+            .pixel_to_world_scalar(center_x, center_y)
+            .map(|(r, d)| format!("{:.6}\t{:.6}", r, d))
+            .unwrap_or_else(|_e| "\t".to_owned());
+
+        // Distance between search point and plate center, in cm. This is
+        // straightforward to calculate in pixel space, because pixels per cm is
+        // a constant. NB: can't use hypot() here right now because it triggers
+        // an undefined glibc symbol version in the Amazon OS image.
+        let center_dist = f64::sqrt(f64::powi(x - center_x, 2) + f64::powi(y - center_y, 2))
+            / (10. * PIXELS_PER_MM);
+
+        // Distance between search point and closest plate edge, in cm. Really
+        // what we mean here is the "mosaic edge".
+        let edge_dist = f64::min(
+            x + 0.5,
+            f64::min(
+                y + 0.5,
+                f64::min(
+                    this_width as f64 - (0.5 + x),
+                    this_height as f64 - (0.5 + y),
+                ),
+            ),
+        ) / (10. * PIXELS_PER_MM);
+
+        let exptime_text = this_exp
+            .and_then(|e| e.dur_min)
+            .map(|d| format!("{:.2}", d))
+            .unwrap_or_default();
+        let jd = "";
+        let epoch = 2000.0;
+        let wcs_source = this_exp
+            .and_then(|e| e.center_source.as_ref())
+            .map(|s| s.as_ref())
+            .unwrap_or("");
+        let scandate = "";
+        let mosdate = mos.map(|m| m.creation_date.as_ref()).unwrap_or("");
+
+        let row = format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{:.1}",
+            plate.series,
+            plate.plate_number,
+            scan_num,
+            mos_num,
+            solexp.exp_num,
+            solexp.sol_num,
+            plate_class,
+            center_text, // 2 columns
+            exptime_text,
+            jd,
+            epoch,
+            wcs_source,
+            scandate,
+            mosdate,
+            center_dist,
+            edge_dist,
+        );
+        rows.push(row);
     }
 }
 

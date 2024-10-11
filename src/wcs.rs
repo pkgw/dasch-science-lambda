@@ -126,6 +126,42 @@ impl Wcs {
         let pixel = self.world_to_pixel(world)?;
         Ok((pixel[(0, 0, 0)], pixel[(0, 0, 1)]))
     }
+
+    /// Dumb utility. We should use generics better.
+    ///
+    /// We use 0-based pixel indexes.
+    pub fn pixel_to_world_scalar(&mut self, x: f64, y: f64) -> Result<(f64, f64)> {
+        const NELEM: c_int = 2;
+
+        let mut pixel = Array::zeros(2);
+        pixel[0] = x + 1.;
+        pixel[1] = x + 1.;
+
+        let mut image = Array::<f64, _>::uninit(pixel.dim());
+        let mut phi = Array::<f64, _>::uninit(pixel.dim());
+        let mut theta = Array::<f64, _>::uninit(pixel.dim());
+        let mut world = Array::<f64, _>::uninit(pixel.dim());
+        let mut status = Array::<c_int, _>::uninit(1);
+
+        try_wcslib!(unsafe {
+            wcslib::wcsp2s(
+                self.handle,
+                1,
+                NELEM,
+                pixel.as_ptr(),
+                image.as_mut_ptr() as *mut _,
+                phi.as_mut_ptr() as *mut _,
+                theta.as_mut_ptr() as *mut _,
+                world.as_mut_ptr() as *mut _,
+                status.as_mut_ptr() as *mut _,
+            )
+        });
+
+        // Let's just ignore any problems.
+
+        let world = unsafe { world.assume_init() };
+        Ok((world[0], world[1]))
+    }
 }
 
 impl Drop for Wcs {
