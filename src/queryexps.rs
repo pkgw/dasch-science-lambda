@@ -13,7 +13,6 @@
 use anyhow::Result;
 use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_s3;
-use base64::{engine::general_purpose::STANDARD, write::EncoderWriter};
 use flate2::read::GzDecoder;
 use lambda_runtime::{Error, LambdaEvent};
 use once_cell::sync::Lazy;
@@ -128,8 +127,9 @@ struct PlatesResult {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PlatesAstrometryResult {
-    #[serde(with = "serde_bytes")]
-    b01_header_gz: Option<Vec<u8>>,
+    #[serde(default, with = "serde_bytes")]
+    // should be Option<>, but not sure how to nest the custom deserializer
+    b01_header_gz: Vec<u8>,
     n_solutions: Option<usize>,
     rotation_delta: Option<isize>,
     exposures: Vec<Option<PlatesExposureResult>>,
@@ -154,7 +154,6 @@ struct PlatesMosaicResult {
     b01_height: usize,
     b01_width: usize,
     creation_date: String,
-    legacy_rotation: isize,
     mos_num: i8,
     scan_num: i8,
 }
@@ -223,7 +222,7 @@ pub async fn handle_queryexps(
         solexps.push(SolExp { sol_num, exp_num });
     }
 
-    //println!("got {} plates", candidates.len());
+    println!("Coarse bin query got {} plates", candidates.len());
 
     // Get the detailed plate information. DynamoDB provides a batch_get_item
     // endpoint that manages to meet our needs, but it's annoying to use.
@@ -238,7 +237,7 @@ pub async fn handle_queryexps(
         ra\t\
         dec\t\
         exptime\t\
-        jd\t\
+        expdate\t\
         epoch\t\
         wcssource\t\
         scandate\t\
@@ -247,52 +246,77 @@ pub async fn handle_queryexps(
         edgedist"
         .to_owned()];
 
+    let base_builder = aws_sdk_dynamodb::types::KeysAndAttributes::builder().projection_expression(
+        "astrometry.b01HeaderGz,\
+            astrometry.exposures,\
+            astrometry.nSolutions,\
+            astrometry.rotationDelta,\
+            mosaic.b01Height,\
+            mosaic.b01Width,\
+            mosaic.creationDate,\
+            mosaic.mosNum,\
+            mosaic.scanNum,\
+            plateId,\
+            plateNumber,\
+            series",
+    );
+
+    let table_name = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
+    let mut unprocessed_keys: Option<HashMap<String, aws_sdk_dynamodb::types::KeysAndAttributes>> =
+        None;
+    let mut remaining_ids = candidates.keys();
+    const MAX_PER_BATCH: usize = 100;
+    let mut all_submitted = false;
+
     loop {
-        let mut keys = Vec::new();
+        // Continue from previous iteration, maybe. We can pass
+        // `unprocessed_keys` straight to `set_request_items()`, but once we do
+        // that there's no way to mutate it, so we can't "top off" our request.
+        // The type structure of this API is pretty gnarly.
 
-        // XXXXX TEMP
-        let mut k = HashMap::with_capacity(1);
-        k.insert(
-            "plateId".to_owned(),
-            AttributeValue::S("am25350".to_owned()),
+        let mut keys = unprocessed_keys
+            .take()
+            .and_then(|mut t| t.remove(&table_name))
+            .map(|kv| kv.keys)
+            .unwrap_or_default();
+
+        // Top up our request to the maximum count. (Amazon says that if your
+        // requests don't get fully filled, you should back off the size of your
+        // batch requests. I don't think that will be a problem for us?)
+
+        while !all_submitted && keys.len() < MAX_PER_BATCH {
+            if let Some(pid) = remaining_ids.next() {
+                // I see no better way to do this ...
+                let mut k = HashMap::with_capacity(1);
+                k.insert("plateId".to_owned(), AttributeValue::S(pid.to_owned()));
+                dbg!(&pid);
+                keys.push(k);
+            } else {
+                dbg!("done");
+                all_submitted = true;
+                break;
+            }
+        }
+
+        dbg!(all_submitted, keys.len());
+
+        if all_submitted && keys.is_empty() {
+            break;
+        }
+
+        // Ready to submit
+
+        let mut req = dc.batch_get_item().request_items(
+            &table_name,
+            base_builder.clone().set_keys(Some(keys)).build()?,
         );
-        keys.push(k);
-        let mut k = HashMap::with_capacity(1);
-        k.insert("plateId".to_owned(), AttributeValue::S("b51503".to_owned()));
-        keys.push(k);
 
-        let keyattr = aws_sdk_dynamodb::types::KeysAndAttributes::builder()
-            .set_keys(Some(keys))
-            .projection_expression(
-                "astrometry.b01HeaderGz,\
-                astrometry.exposures,\
-                astrometry.nSolutions,\
-                astrometry.rotationDelta,\
-                mosaic.b01Height,\
-                mosaic.b01Width,\
-                mosaic.creationDate,\
-                mosaic.legacyRotation,\
-                mosaic.mosNum,\
-                mosaic.scanNum,\
-                plateId,\
-                plateNumber,\
-                series",
-            )
-            .build()?;
+        let resp = req.send().await?;
 
-        let resp = dc
-            .batch_get_item()
-            .request_items(format!("dasch-{}-dr7-plates", super::ENVIRONMENT), keyattr)
-            .send()
-            .await?;
+        let mut chunk: Vec<PlatesResult> =
+            serde_dynamo::from_items(resp.responses.unwrap().remove(&table_name).unwrap())?;
 
-        let mut chunk: Vec<PlatesResult> = serde_dynamo::from_items(
-            resp.responses
-                .unwrap()
-                .remove("dasch-dev-dr7-plates")
-                .unwrap(),
-        )?;
-        dbg!(resp.unprocessed_keys);
+        dbg!(chunk.len());
 
         for item in chunk.drain(..) {
             // "Impossible" to get a plate ID that's not in our candidates list:
@@ -300,65 +324,8 @@ pub async fn handle_queryexps(
             process_one(&request, item, &solexps[..], &mut rows);
         }
 
-        break; // XXXXXXXXXXXXXXXXXXXXX
+        unprocessed_keys = resp.unprocessed_keys;
     }
-
-    //let plates_table = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
-    //let result = dc
-    //    .get_item()
-    //    .table_name(plates_table)
-    //    .key("plateId", AttributeValue::S(request.plate_id.clone()))
-    //    .projection_expression(
-    //        "astrometry.b01HeaderGz,\
-    //        astrometry.nSolutions,\
-    //        astrometry.rotationDelta,\
-    //        mosaic.b01Height,\
-    //        mosaic.b01Width,\
-    //        mosaic.s3KeyTemplate",
-    //    )
-    //    .send()
-    //    .await?;
-    //let item = result
-    //    .item
-    //    .ok_or_else(|| -> Error { format!("no such plate_id `{}`", request.plate_id).into() })?;
-    //let item: PlatesResult = serde_dynamo::from_item(item)?;
-    //let mos_data = item.mosaic.ok_or_else(|| -> Error {
-    //    format!(
-    //        "plate `{}` has no registered FITS mosaic information (never scanned?)",
-    //        request.plate_id
-    //    )
-    //    .into()
-    //})?;
-    //let astrom_data = item.astrometry.ok_or_else(|| -> Error {
-    //    format!(
-    //        "plate `{}` has no registered astrometric solutions",
-    //        request.plate_id
-    //    )
-    //    .into()
-    //})?;
-    //if request.solution_number >= astrom_data.n_solutions {
-    //    return Err(format!(
-    //        "requested astrometric solution #{} (0-based) for plate `{}` but it only has {} solutions",
-    //        request.solution_number,
-    //        request.plate_id,
-    //        astrom_data.n_solutions
-    //    )
-    //    .into());
-    //}
-    //if astrom_data.rotation_delta != 0 {
-    //    return Err(format!(
-    //        "XXX rotation_delta {} for plate `{}`",
-    //        astrom_data.rotation_delta, request.plate_id,
-    //    )
-    //    .into());
-    //}
-    //if request.solution_number != 0 {
-    //    return Err(format!(
-    //        "XXX solnum {} for plate `{}`",
-    //        request.solution_number, request.plate_id,
-    //    )
-    //    .into());
-    //}
 
     // Done
 
@@ -374,9 +341,13 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
     let mos = plate.mosaic.as_ref();
     let astrom = plate.astrometry.as_ref();
 
-    let mut solved_wcs = astrom
-        .and_then(|a| a.b01_header_gz.as_ref())
-        .and_then(|gzh| load_b01_header(GzDecoder::new(&gzh[..])).ok());
+    let mut solved_wcs = astrom.map(|a| &a.b01_header_gz).and_then(|gzh| {
+        if gzh.is_empty() {
+            None
+        } else {
+            load_b01_header(GzDecoder::new(&gzh[..])).ok()
+        }
+    });
 
     let n_solutions = if solved_wcs.is_none() {
         0
@@ -562,7 +533,10 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
             .and_then(|e| e.dur_min)
             .map(|d| format!("{:.2}", d))
             .unwrap_or_default();
-        let jd = "";
+        let expdate_text = this_exp
+            .and_then(|e| e.midpoint_date.as_ref())
+            .map(|s| s.as_ref())
+            .unwrap_or("");
         let epoch = 2000.0;
         let wcs_source = this_exp
             .and_then(|e| e.center_source.as_ref())
@@ -582,7 +556,7 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
             plate_class,
             center_text, // 2 columns
             exptime_text,
-            jd,
+            expdate_text,
             epoch,
             wcs_source,
             scandate,
