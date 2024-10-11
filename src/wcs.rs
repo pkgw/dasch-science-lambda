@@ -117,6 +117,15 @@ impl Wcs {
 
         Ok(pixel)
     }
+
+    /// Dumb utility. We should use generics better.
+    pub fn world_to_pixel_scalar(&mut self, ra_deg: f64, dec_deg: f64) -> Result<(f64, f64)> {
+        let mut world = Array::zeros((1, 1, 2));
+        world[(0, 0, 0)] = ra_deg;
+        world[(0, 0, 1)] = dec_deg;
+        let pixel = self.world_to_pixel(world)?;
+        Ok((pixel[(0, 0, 0)], pixel[(0, 0, 1)]))
+    }
 }
 
 impl Drop for Wcs {

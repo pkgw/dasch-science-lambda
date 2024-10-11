@@ -10,11 +10,13 @@
 //! sky-binned CSV files that that API uses to narrow down the list of plates to
 //! search.
 
+use anyhow::Result;
 use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_s3;
 use base64::{engine::general_purpose::STANDARD, write::EncoderWriter};
 use flate2::read::GzDecoder;
 use lambda_runtime::{Error, LambdaEvent};
+use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
@@ -22,9 +24,90 @@ use std::{
 };
 use tokio::io::AsyncBufReadExt;
 
+use crate::{fitsfile::FitsFile, wcs::Wcs};
+
 const BUCKET: &str = "dasch-prod-user";
 
-use crate::wcs::Wcs;
+const PIXELS_PER_MM: f64 = 90.9090;
+
+// These are from the DASCH SQL DB `scanner.series` table, looking at the
+// non-NULL `fittedPlateScale` values when available, otherwise
+// `nominalPlateScale`. Values are arcsec per millimeter.
+static PLATE_SCALE_BY_SERIES: Lazy<HashMap<String, f64>> = Lazy::new(|| {
+    [
+        ("a", 59.57),
+        ("ab", 590.), // nominal
+        ("ac", 606.4),
+        ("aco", 611.3),
+        ("adh", 68.), // nominal
+        ("ai", 1360.),
+        ("ak", 614.5),
+        ("al", 1200.), // nominal
+        ("am", 610.8),
+        ("an", 574.), // nominal
+        ("ax", 695.7),
+        ("ay", 694.2),
+        ("b", 179.4),
+        ("bi", 1446.),
+        ("bm", 384.),
+        ("bo", 800.), // nominal
+        ("br", 204.),
+        ("c", 52.56),
+        ("ca", 596.),
+        ("ctio", 18.),
+        ("darnor", 890.), // nominal
+        ("darsou", 890.), // nominal
+        ("dnb", 577.3),
+        ("dnr", 579.7),
+        ("dny", 576.1),
+        ("dsb", 574.5),
+        ("dsr", 579.7),
+        ("dsy", 581.8),
+        ("ee", 330.),
+        ("er", 390.), // nominal
+        ("fa", 1298.),
+        ("h", 59.6),
+        ("hale", 11.06), // nominal
+        ("i", 163.3),
+        ("ir", 164.),
+        ("j", 98.),     // nominal
+        ("jdar", 560.), // nominal
+        ("ka", 1200.),  // nominal
+        ("kb", 1200.),  // nominal
+        ("kc", 650.),   // nominal
+        ("kd", 650.),   // nominal
+        ("ke", 1160.),  // nominal
+        ("kf", 1160.),  // nominal
+        ("kg", 1160.),  // nominal
+        ("kge", 1160.), // nominal
+        ("kh", 1160.),  // nominal
+        ("lwla", 36.687),
+        ("ma", 93.7),
+        ("mb", 390.),
+        ("mc", 97.9),
+        ("md", 193.),      // nominal
+        ("me", 600.),      // nominal
+        ("meteor", 1200.), // nominal
+        ("mf", 167.3),
+        ("na", 100.),
+        ("pas", 95.64),
+        ("poss", 67.19), // nominal
+        ("pz", 1553.),
+        ("r", 390.), // nominal
+        ("rb", 395.5),
+        ("rh", 391.3),
+        ("rl", 290.), // nominal
+        ("ro", 390.), // nominal
+        ("s", 26.3),  // nominal
+        ("sb", 26.),  // nominal
+        ("sh", 26.),  // nominal
+        ("x", 42.3),
+        ("yb", 55.),
+    ]
+    .iter()
+    .map(|t| (t.0.to_owned(), t.1))
+    .collect()
+});
 
 #[derive(Deserialize)]
 pub struct Request {
@@ -37,16 +120,18 @@ pub struct Request {
 struct PlatesResult {
     astrometry: Option<PlatesAstrometryResult>,
     mosaic: Option<PlatesMosaicResult>,
+    plate_id: String,
+    series: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PlatesAstrometryResult {
     #[serde(with = "serde_bytes")]
-    b01_header_gz: Vec<u8>,
-    n_solutions: usize,
-    rotation_delta: isize,
-    exposures: Vec<PlatesExposureResult>,
+    b01_header_gz: Option<Vec<u8>>,
+    n_solutions: Option<usize>,
+    rotation_delta: Option<isize>,
+    exposures: Vec<Option<PlatesExposureResult>>,
 }
 
 #[derive(Deserialize)]
@@ -58,7 +143,7 @@ struct PlatesExposureResult {
     dec_deg: Option<f64>,
     dur_min: Option<f64>,
     midpoint_date: Option<String>,
-    number: u8,
+    number: i8,
     ra_deg: Option<f64>,
 }
 
@@ -69,10 +154,11 @@ struct PlatesMosaicResult {
     b01_width: usize,
     creation_date: String,
     legacy_rotation: isize,
-    mos_num: u8,
-    scan_num: u8,
+    mos_num: i8,
+    scan_num: i8,
 }
 
+#[derive(Debug)]
 struct SolExp {
     sol_num: i8,
     exp_num: i8,
@@ -136,9 +222,67 @@ pub async fn handle_queryexps(
         solexps.push(SolExp { sol_num, exp_num });
     }
 
-    println!("got {} plates", candidates.len());
+    //println!("got {} plates", candidates.len());
 
-    // Get the information we need about this plate and validate the basic request.
+    // Get the detailed plate information. DynamoDB provides a batch_get_item
+    // endpoint that manages to meet our needs, but it's annoying to use.
+
+    let mut rows = Vec::new();
+
+    loop {
+        let mut keys = Vec::new();
+
+        // XXXXX TEMP
+        let mut k = HashMap::with_capacity(1);
+        k.insert(
+            "plateId".to_owned(),
+            AttributeValue::S("am25350".to_owned()),
+        );
+        keys.push(k);
+        let mut k = HashMap::with_capacity(1);
+        k.insert("plateId".to_owned(), AttributeValue::S("b51503".to_owned()));
+        keys.push(k);
+
+        let keyattr = aws_sdk_dynamodb::types::KeysAndAttributes::builder()
+            .set_keys(Some(keys))
+            .projection_expression(
+                "astrometry.b01HeaderGz,\
+                astrometry.exposures,\
+                astrometry.nSolutions,\
+                astrometry.rotationDelta,\
+                mosaic.b01Height,\
+                mosaic.b01Width,\
+                mosaic.creationDate,\
+                mosaic.legacyRotation,\
+                mosaic.mosNum,\
+                mosaic.scanNum,\
+                plateId,\
+                series",
+            )
+            .build()?;
+
+        let resp = dc
+            .batch_get_item()
+            .request_items(format!("dasch-{}-dr7-plates", super::ENVIRONMENT), keyattr)
+            .send()
+            .await?;
+
+        let mut chunk: Vec<PlatesResult> = serde_dynamo::from_items(
+            resp.responses
+                .unwrap()
+                .remove("dasch-dev-dr7-plates")
+                .unwrap(),
+        )?;
+        dbg!(resp.unprocessed_keys);
+
+        for item in chunk.drain(..) {
+            // "Impossible" to get a plate ID that's not in our candidates list:
+            let solexps = candidates.get(&item.plate_id).unwrap();
+            process_one(&request, item, &solexps[..], &mut rows);
+        }
+
+        break; // XXXXXXXXXXXXXXXXXXXXX
+    }
 
     //let plates_table = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
     //let result = dc
@@ -197,11 +341,164 @@ pub async fn handle_queryexps(
     //    .into());
     //}
 
-    let mut rows = Vec::new();
-
     // Done
 
     Ok(rows)
+}
+
+fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mut Vec<String>) {
+    // First order of business is to prepare to construct a WCS object for every
+    // solexp that we need to check. Even if we have some precise astrometric
+    // solutions, we might *also* have catalog-only exposures for which we need
+    // to construct approximate WCS, so we need to be prepared to handle either.
+
+    let mos = plate.mosaic.as_ref();
+    let astrom = plate.astrometry.as_ref();
+
+    let mut solved_wcs = astrom
+        .and_then(|a| a.b01_header_gz.as_ref())
+        .and_then(|gzh| load_b01_header(GzDecoder::new(&gzh[..])).ok());
+
+    let n_solutions = if solved_wcs.is_none() {
+        0
+    } else {
+        astrom.and_then(|a| a.n_solutions).unwrap_or(0)
+    };
+
+    let (width, height) = if let Some(mosdata) = mos {
+        // The astrometric solution that we're using may be based on a plate
+        // image that has been rotated relative to the mosaic that's actually
+        // "on file". If the rotation is 90 or 270 degrees, that means that we
+        // need to swap the effective dimensions.
+        let wh = (mosdata.b01_width, mosdata.b01_height);
+
+        match astrom.and_then(|a| a.rotation_delta) {
+            Some(-270) | Some(-90) | Some(90) | Some(270) => (wh.1, wh.0),
+            _ => wh,
+        }
+    } else if plate.series == "a" {
+        // No mosaic, so we have to guess the plate size. The legacy DASCH
+        // pipeline assumes 10" for everything except the A series, for which it
+        // assumes 17". We assume the long dimension and squareness, because
+        // we're being optimistic and don't know the plate's orientation on the
+        // sky.
+        (39255, 39255) // 17 inches, 90.909 pixels per mm
+    } else {
+        (23091, 23091) // 10 inches, 90.909 pixels per mm
+    };
+
+    let naxis_for_approx = usize::max(width, height);
+
+    // This is degrees per pixel:
+    let pixel_scale = PLATE_SCALE_BY_SERIES
+        .get(&plate.series)
+        .map(|pl| pl / PIXELS_PER_MM / 3600.);
+
+    // Finally we're ready to go
+
+    for solexp in solexps {
+        let mut maybe_temp_wcs = None;
+        let mut this_wcs = None;
+        let mut this_width = width;
+        let mut this_height = height;
+
+        if solexp.sol_num >= 0 && (solexp.sol_num as usize) < n_solutions {
+            // Yay, we have real WCS for this one. We can only get here if solved_wcs is Some.
+            this_wcs = Some(solved_wcs.as_mut().unwrap());
+        }
+
+        // If we don't have a real solution, we may be able to do an approximate
+        // test based on the coarse exposure data. This only works if we have a
+        // pixel scale and if the exposure has useful centering information.
+
+        if this_wcs.is_none() && !pixel_scale.is_none() && solexp.exp_num >= 0 {
+            // We need to find the exposure record of interest. The list of
+            // exposures is sorted to match the full solutions, and so is *not*
+            // in exposure order, and also contains null rows.
+
+            for maybe_exp in astrom.map(|a| &a.exposures[..]).unwrap_or(&[]) {
+                if let Some(exp) = maybe_exp {
+                    if exp.number == solexp.exp_num {
+                        // We actually have a match! It *should* have useful
+                        // RA/Dec info since otherwise it shouldn't be in our
+                        // bin list, but let's check.
+
+                        if let (Some(ra), Some(dec)) = (exp.ra_deg, exp.dec_deg) {
+                            // These are all placeholder values observed in the
+                            // data. We should strip them out of the DynamoDB.
+
+                            if ra != 999. && ra != -99. && dec != 99. && dec != -99. {
+                                // We found the exposure, and we can use it.
+                                // This is a dumb way to synthesize WCS, but
+                                // here we are.
+
+                                let ps = pixel_scale.unwrap(); // checked above
+
+                                let make_wcs = || -> Result<Wcs> {
+                                    let mut tmp_fits = FitsFile::create_mem()?;
+                                    tmp_fits.write_square_image_header(naxis_for_approx as u64)?;
+                                    tmp_fits.set_string_header("CTYPE1", "RA---TAN")?;
+                                    tmp_fits.set_string_header("CTYPE2", "DEC--TAN")?;
+                                    tmp_fits.set_f64_header("CRVAL1", ra)?;
+                                    tmp_fits.set_f64_header("CRVAL2", dec)?;
+                                    tmp_fits.set_f64_header(
+                                        "CRPIX1",
+                                        0.5 * (naxis_for_approx as f64 + 1.),
+                                    )?; // 1-based pixel coords
+                                    tmp_fits.set_f64_header(
+                                        "CRPIX2",
+                                        0.5 * (naxis_for_approx as f64 + 1.),
+                                    )?;
+                                    tmp_fits.set_f64_header("CD1_1", -ps)?;
+                                    tmp_fits.set_f64_header("CD2_2", ps)?;
+                                    Ok(tmp_fits.get_wcs()?)
+                                };
+
+                                if let Ok(wcs) = make_wcs() {
+                                    // It worked!!!
+
+                                    maybe_temp_wcs = Some(wcs);
+                                    this_wcs = maybe_temp_wcs.as_mut();
+                                    this_width = naxis_for_approx;
+                                    this_height = naxis_for_approx;
+                                }
+                            }
+                        }
+
+                        // Regardless of how well that all went, we're done
+                        // searching.
+                        break;
+                    }
+                }
+            }
+        }
+
+        // We tried our best. There *should* always be a WCS to use, but if not,
+        // treat this plate+solexp as a non-match: ignore it.
+
+        let this_wcs = match this_wcs {
+            Some(w) => w,
+            None => continue,
+        };
+
+        println!("got wcs for {}/{:?}", plate.plate_id, solexp);
+
+        // Finally we can check whether this plate+solexp actually intersects
+        // with the point of interest!
+
+        let (x, y) = match this_wcs.world_to_pixel_scalar(req.ra_deg, req.dec_deg) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        if x < -0.5 || x > (this_width as f64 - 0.5) || y < -0.5 || y > (this_height as f64 - 0.5) {
+            continue;
+        }
+
+        // The point of interest actually intersects the plate, we think!
+
+        rows.push(format!("hit: {}/{:?}", plate.plate_id, solexp));
+    }
 }
 
 /// The bin01 header is stored in the DynamoDB as bytes, which are gzipped text
