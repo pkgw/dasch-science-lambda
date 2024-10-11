@@ -145,6 +145,9 @@ pub async fn handle_cutout(
     }
 
     // We can compute the target WCS and start building the output FITS.
+    //
+    // TODO: add lots more headers, including approximate WCS for the other
+    // exposures on this plate.
 
     let mut dest_fits = FitsFile::create_mem()?;
     dest_fits.write_square_image_header(OUTPUT_IMAGE_FULLSIZE as u64)?;
@@ -163,8 +166,7 @@ pub async fn handle_cutout(
 
     // Figure out where we land on the source image.
 
-    let header_dec = GzDecoder::new(&astrom_data.b01_header_gz[..]);
-    let mut src_wcs = load_b01_header(header_dec)?;
+    let mut src_wcs = load_b01_header(GzDecoder::new(&astrom_data.b01_header_gz[..]))?;
     let destpix = src_wcs.world_to_pixel(dest_world)?;
 
     let dp_flat = destpix.view().into_shape((OUTPUT_IMAGE_NPIX, 2)).unwrap();
@@ -174,17 +176,14 @@ pub async fn handle_cutout(
     let maxs = dp_flat.map_axis(Axis(0), |view| {
         view.into_iter().copied().reduce(f64::max).unwrap()
     });
-    dbg!(&mins, &maxs);
 
     let xmin = isize::max(mins[0].floor() as isize, 0) as usize;
     let xmax = isize::min(maxs[0].ceil() as isize, mos_data.b01_width as isize - 1) as usize;
     let ymin = isize::max(mins[1].floor() as isize, 0) as usize;
     let ymax = isize::min(maxs[1].ceil() as isize, mos_data.b01_height as isize - 1) as usize;
-    dbg!(xmin, xmax, ymin, ymax);
 
     let src_nx = xmax + 1 - xmin;
     let src_ny = ymax + 1 - ymin;
-    dbg!(src_nx, src_ny);
 
     if src_nx < 1 || src_ny < 1 {
         return Err(format!(
@@ -194,7 +193,7 @@ pub async fn handle_cutout(
         .into());
     }
 
-    // Get the source pixels.
+    // Actually get the source pixels.
     //
     // Gross: as far as I can see, since we're bridging across C code, the
     // CFITSIO S3 I/O callbacks can't leverage the main async runtime even
@@ -226,6 +225,9 @@ pub async fn handle_cutout(
     //
     // ndarray_interp requires that the x, y, and data types must all be the
     // same. So we have to translate our image data to f64.
+    //
+    // Also note that its "x" and "y" terminology is such that 2D arrays are
+    // indexed `arr[x,y]`, which is the opposite of our convention.
 
     let xs = destpix
         .slice(s![.., .., 0])
@@ -249,7 +251,12 @@ pub async fn handle_cutout(
         .unwrap();
     let dest_data = dest_data.mapv(|e| e as i16);
 
-    // Emit
+    // Write out the pixels, and we're done.
+    //
+    // Buffered lambdas can only emit JSON values. We emit the result as a
+    // single string, which is a base64-encoded form of the output file. That
+    // file is itself gzipped. So to get uncompressed FITS from the output of
+    // this API, you have to decode JSON -> un-base64 -> un-gzip.
 
     dest_fits.write_pixels(&dest_data)?;
 
@@ -265,6 +272,17 @@ pub async fn handle_cutout(
     Ok(dest_gz_b64)
 }
 
+/// The bin01 header is stored in the DynamoDB as bytes, which are gzipped text
+/// of an ASCII FITS header file. This file consists of 80-character lines of
+/// header text, separated by newlines, without a trailing newline.
+///
+/// As far as I can tell, the wcslib header parser will only handle data as they
+/// are stored in FITS files: no newline separators allowed. So we need to munge
+/// the data. We also need to give wcslib a count of headers.
+///
+/// We *also* need to hack the headers because wcslib only accepts our
+/// distortion terms if the `CTYPEn` values end with `-TPV`; it seems that the
+/// pipeline, which is based on wcstools/libwcs, generates non-standard headers.
 fn load_b01_header<R: Read>(mut src: R) -> Result<Wcs, Error> {
     let mut header = Vec::new();
     let mut n_rec = 0;
@@ -282,18 +300,15 @@ fn load_b01_header<R: Read>(mut src: R) -> Result<Wcs, Error> {
             }
         }
 
-        // TAN/TPV hack.
-        if buf.starts_with(b"CTYPE") {
-            // With the rigid FITS keyword structure, we know exactly where to
-            // look:
-            if buf[15..].starts_with(b"-TAN") {
-                buf[15..19].clone_from_slice(b"-TPV");
-            }
+        // TAN/TPV hack. With the rigid FITS keyword structure, we know exactly where to
+        // look:
+        if buf.starts_with(b"CTYPE") && buf[15..].starts_with(b"-TAN") {
+            buf[15..19].clone_from_slice(b"-TPV");
         }
 
         header.append(&mut buf);
         n_rec += 1;
-        buf.resize(80, 0);
+        buf.resize(80, 0); // the `append` truncates `buf`
 
         if let Err(e) = src.read_exact(&mut buf[..1]) {
             if e.kind() == ErrorKind::UnexpectedEof {
