@@ -43,7 +43,7 @@ impl Wcs {
         Ok(Wcs { handle })
     }
 
-    pub fn new_tan(crval1: f64, crval2: f64, crpix1: f64, crpix2: f64, cd22: f64) -> Result<Self> {
+    pub fn new_tan(crval1: f64, crval2: f64, crpix1: f64, crpix2: f64, cd22: f64) -> Self {
         let header = format!(
             "\
 NAXIS   =                    2 / number of data axes                            \
@@ -58,6 +58,7 @@ CD2_2   = {:24}                                              ",
             crval1, crval2, crpix1, crpix2, -cd22, cd22
         );
         unsafe { Self::new_raw(header.as_ptr() as *const _, 9) }
+            .expect("out of memory? TAN construction should be infallible")
     }
 
     /// Sample world coordinates on a grid of pixel indices.

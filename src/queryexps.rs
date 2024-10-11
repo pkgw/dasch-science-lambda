@@ -14,7 +14,7 @@ use anyhow::Result;
 use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_s3;
 use flate2::read::GzDecoder;
-use lambda_runtime::{Error, LambdaEvent};
+use lambda_runtime::Error;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::{
@@ -23,7 +23,7 @@ use std::{
 };
 use tokio::io::AsyncBufReadExt;
 
-use crate::{fitsfile::FitsFile, wcs::Wcs};
+use crate::wcs::Wcs;
 
 const BUCKET: &str = "dasch-prod-user";
 
@@ -244,17 +244,17 @@ pub async fn handle_queryexps(
 
     let base_builder = aws_sdk_dynamodb::types::KeysAndAttributes::builder().projection_expression(
         "astrometry.b01HeaderGz,\
-            astrometry.exposures,\
-            astrometry.nSolutions,\
-            astrometry.rotationDelta,\
-            mosaic.b01Height,\
-            mosaic.b01Width,\
-            mosaic.creationDate,\
-            mosaic.mosNum,\
-            mosaic.scanNum,\
-            plateId,\
-            plateNumber,\
-            series",
+        astrometry.exposures,\
+        astrometry.nSolutions,\
+        astrometry.rotationDelta,\
+        mosaic.b01Height,\
+        mosaic.b01Width,\
+        mosaic.creationDate,\
+        mosaic.mosNum,\
+        mosaic.scanNum,\
+        plateId,\
+        plateNumber,\
+        series",
     );
 
     let table_name = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
@@ -322,8 +322,6 @@ pub async fn handle_queryexps(
 
         unprocessed_keys = resp.unprocessed_keys;
     }
-
-    // Done
 
     Ok(rows)
 }
@@ -429,23 +427,11 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
                                 // WCS.
 
                                 let ps = pixel_scale.unwrap(); // checked above
-
-                                if let Ok(wcs) = Wcs::new_tan(
-                                    ra,
-                                    dec,
-                                    0.5 * (naxis_for_approx as f64 + 1.),
-                                    0.5 * (naxis_for_approx as f64 + 1.),
-                                    ps,
-                                ) {
-                                    // It worked!!!
-
-                                    maybe_temp_wcs = Some(wcs);
-                                    this_wcs = maybe_temp_wcs.as_mut();
-                                    this_width = naxis_for_approx;
-                                    this_height = naxis_for_approx;
-                                } else {
-                                    eprintln!("WCS ERRR");
-                                }
+                                let crpix = 0.5 * (naxis_for_approx as f64 + 1.);
+                                maybe_temp_wcs = Some(Wcs::new_tan(ra, dec, crpix, crpix, ps));
+                                this_wcs = maybe_temp_wcs.as_mut();
+                                this_width = naxis_for_approx;
+                                this_height = naxis_for_approx;
                             }
                         }
                     }
@@ -477,7 +463,8 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
             continue;
         }
 
-        // The point of interest actually intersects the plate!
+        // The point of interest actually intersects the plate! Gather the data
+        // to report it.
 
         let scan_num = mos.map(|m| m.scan_num).unwrap_or(-1);
         let mos_num = mos.map(|m| m.mos_num).unwrap_or(-1);
