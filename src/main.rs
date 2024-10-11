@@ -17,6 +17,7 @@ mod cutout;
 mod fitsfile;
 mod gscbin;
 mod querycat;
+mod queryexps;
 mod refnums;
 mod s3buffer;
 mod s3fits;
@@ -35,10 +36,11 @@ async fn main() -> Result<(), Error> {
     // TODO: once-cell this:
     s3fits::register(config.clone());
 
-    // TEMPORARY: hardcoding cutout service
-    let client = aws_sdk_dynamodb::Client::new(&config);
-    //let bin64 = gscbin::GscBinning::new64();
-    let func = service_fn(|event| cutout::handle_cutout(event, &client));
+    // TEMPORARY: hardcoding queryexps service
+    let dc = aws_sdk_dynamodb::Client::new(&config);
+    let s3c = aws_sdk_s3::Client::new(&config);
+    let bin1 = gscbin::GscBinning::new1();
+    let func = service_fn(|event| queryexps::handle_queryexps(event, &dc, &s3c, &bin1));
     lambda_runtime::run(func).await?;
     Ok(())
 }
