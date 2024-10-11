@@ -38,9 +38,26 @@ impl Wcs {
             )
         });
 
-        println!("** wcs {nreject} {nwcs}");
+        //println!("** wcs {nreject} {nwcs}");
 
         Ok(Wcs { handle })
+    }
+
+    pub fn new_tan(crval1: f64, crval2: f64, crpix1: f64, crpix2: f64, cd22: f64) -> Result<Self> {
+        let header = format!(
+            "\
+NAXIS   =                    2 / number of data axes                            \
+CTYPE1  = 'RA---TAN'                                                            \
+CTYPE2  = 'DEC--TAN'                                                            \
+CRVAL1  = {:24}                                              \
+CRVAL2  = {:24}                                              \
+CRPIX1  = {:24}                                              \
+CRPIX2  = {:24}                                              \
+CD1_1   = {:24}                                              \
+CD2_2   = {:24}                                              ",
+            crval1, crval2, crpix1, crpix2, -cd22, cd22
+        );
+        unsafe { Self::new_raw(header.as_ptr() as *const _, 9) }
     }
 
     /// Sample world coordinates on a grid of pixel indices.

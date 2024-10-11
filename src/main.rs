@@ -11,7 +11,7 @@
 //! Annoyingly, the buffered response mechanism can *only* output JSON, so we
 //! can't emit CSV.
 
-use lambda_runtime::{service_fn, Error};
+use lambda_runtime::{service_fn, Error, LambdaEvent};
 
 mod cutout;
 mod fitsfile;
@@ -40,7 +40,13 @@ async fn main() -> Result<(), Error> {
     let dc = aws_sdk_dynamodb::Client::new(&config);
     let s3c = aws_sdk_s3::Client::new(&config);
     let bin1 = gscbin::GscBinning::new1();
-    let func = service_fn(|event| queryexps::handle_queryexps(event, &dc, &s3c, &bin1));
+    let func = service_fn(|event: LambdaEvent<queryexps::Request>| {
+        let (request, context) = event.into_parts();
+        let cfg = context.env_config;
+        println!("*** fn name={} version={}", cfg.function_name, cfg.version);
+        queryexps::handle_queryexps(request, &dc, &s3c, &bin1)
+    });
     lambda_runtime::run(func).await?;
+
     Ok(())
 }

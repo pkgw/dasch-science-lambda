@@ -110,8 +110,8 @@ static PLATE_SCALE_BY_SERIES: Lazy<HashMap<String, f64>> = Lazy::new(|| {
 
 #[derive(Deserialize)]
 pub struct Request {
-    ra_deg: f64,
-    dec_deg: f64,
+    pub ra_deg: f64,
+    pub dec_deg: f64,
 }
 
 #[derive(Deserialize)]
@@ -139,8 +139,8 @@ struct PlatesAstrometryResult {
 #[serde(rename_all = "camelCase")]
 struct PlatesExposureResult {
     center_source: Option<String>,
-    date_acc_days: Option<f64>,
-    date_source: Option<String>,
+    //date_acc_days: Option<f64>,
+    //date_source: Option<String>,
     dec_deg: Option<f64>,
     dur_min: Option<f64>,
     midpoint_date: Option<String>,
@@ -165,15 +165,11 @@ struct SolExp {
 }
 
 pub async fn handle_queryexps(
-    event: LambdaEvent<Request>,
+    request: Request,
     dc: &aws_sdk_dynamodb::Client,
     s3: &aws_sdk_s3::Client,
     binning: &crate::gscbin::GscBinning,
 ) -> Result<Vec<String>, Error> {
-    let (request, context) = event.into_parts();
-    let cfg = context.env_config;
-    println!("*** fn name={} version={}", cfg.function_name, cfg.version);
-
     // Early validation, with NaN-sensitive logic
 
     if !(request.ra_deg >= 0. && request.ra_deg <= 360.) {
@@ -289,16 +285,12 @@ pub async fn handle_queryexps(
                 // I see no better way to do this ...
                 let mut k = HashMap::with_capacity(1);
                 k.insert("plateId".to_owned(), AttributeValue::S(pid.to_owned()));
-                dbg!(&pid);
                 keys.push(k);
             } else {
-                dbg!("done");
                 all_submitted = true;
                 break;
             }
         }
-
-        dbg!(all_submitted, keys.len());
 
         if all_submitted && keys.is_empty() {
             break;
@@ -306,17 +298,21 @@ pub async fn handle_queryexps(
 
         // Ready to submit
 
-        let mut req = dc.batch_get_item().request_items(
-            &table_name,
-            base_builder.clone().set_keys(Some(keys)).build()?,
-        );
+        let resp = dc
+            .batch_get_item()
+            .request_items(
+                &table_name,
+                base_builder.clone().set_keys(Some(keys)).build()?,
+            )
+            .send()
+            .await?;
 
-        let resp = req.send().await?;
-
-        let mut chunk: Vec<PlatesResult> =
-            serde_dynamo::from_items(resp.responses.unwrap().remove(&table_name).unwrap())?;
-
-        dbg!(chunk.len());
+        let mut chunk: Vec<PlatesResult> = serde_dynamo::from_items(
+            resp.responses
+                .unwrap()
+                .remove(&table_name)
+                .unwrap_or_default(),
+        )?;
 
         for item in chunk.drain(..) {
             // "Impossible" to get a plate ID that's not in our candidates list:
@@ -429,39 +425,26 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
                             // data. We should strip them out of the DynamoDB:
 
                             if ra != 999. && ra != -99. && dec != 99. && dec != -99. {
-                                // We found the exposure, and we can use it for
-                                // WCS. This is a dumb way to synthesize WCS,
-                                // but here we are.
+                                // We found the exposure, and we can and should use it for
+                                // WCS.
 
                                 let ps = pixel_scale.unwrap(); // checked above
 
-                                let make_wcs = || -> Result<Wcs> {
-                                    let mut tmp_fits = FitsFile::create_mem()?;
-                                    tmp_fits.write_square_image_header(naxis_for_approx as u64)?;
-                                    tmp_fits.set_string_header("CTYPE1", "RA---TAN")?;
-                                    tmp_fits.set_string_header("CTYPE2", "DEC--TAN")?;
-                                    tmp_fits.set_f64_header("CRVAL1", ra)?;
-                                    tmp_fits.set_f64_header("CRVAL2", dec)?;
-                                    tmp_fits.set_f64_header(
-                                        "CRPIX1",
-                                        0.5 * (naxis_for_approx as f64 + 1.),
-                                    )?; // 1-based pixel coords
-                                    tmp_fits.set_f64_header(
-                                        "CRPIX2",
-                                        0.5 * (naxis_for_approx as f64 + 1.),
-                                    )?;
-                                    tmp_fits.set_f64_header("CD1_1", -ps)?;
-                                    tmp_fits.set_f64_header("CD2_2", ps)?;
-                                    Ok(tmp_fits.get_wcs()?)
-                                };
-
-                                if let Ok(wcs) = make_wcs() {
+                                if let Ok(wcs) = Wcs::new_tan(
+                                    ra,
+                                    dec,
+                                    0.5 * (naxis_for_approx as f64 + 1.),
+                                    0.5 * (naxis_for_approx as f64 + 1.),
+                                    ps,
+                                ) {
                                     // It worked!!!
 
                                     maybe_temp_wcs = Some(wcs);
                                     this_wcs = maybe_temp_wcs.as_mut();
                                     this_width = naxis_for_approx;
                                     this_height = naxis_for_approx;
+                                } else {
+                                    eprintln!("WCS ERRR");
                                 }
                             }
                         }
@@ -481,8 +464,6 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
             Some(w) => w,
             None => continue,
         };
-
-        println!("got wcs for {}/{:?}", plate.plate_id, solexp);
 
         // Finally we can check whether this plate+solexp actually intersects
         // with the point of interest!
