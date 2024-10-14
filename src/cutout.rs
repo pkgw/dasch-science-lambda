@@ -60,9 +60,13 @@ const OUTPUT_IMAGE_FULLSIZE: usize = 2 * OUTPUT_IMAGE_HALFSIZE + 1;
 const OUTPUT_IMAGE_NPIX: usize = OUTPUT_IMAGE_FULLSIZE * OUTPUT_IMAGE_FULLSIZE;
 const OUTPUT_IMAGE_PIXSCALE: f64 = 0.0004; // deg/pix
 
-pub async fn handler(req: Value, dc: &aws_sdk_dynamodb::Client) -> Result<Value, Error> {
+pub async fn handler(req: Option<Value>, dc: &aws_sdk_dynamodb::Client) -> Result<Value, Error> {
     Ok(serde_json::to_value(
-        implementation(serde_json::from_value(req)?, dc).await?,
+        implementation(
+            serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+            dc,
+        )
+        .await?,
     )?)
 }
 

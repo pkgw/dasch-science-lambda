@@ -207,11 +207,11 @@ install_dist :
 	   cp -fp CHANGES wcslib.pdf ~/public_html/WCS/
 	   rsync --archive --delete html/ ~/public_html/WCS/wcslib/
 
-configure : configure.ac
-	-@ echo ''
-	-@ $(TIMER)
-	   autoconf
-	-@ $(RM) configure~
+### configure : configure.ac
+### 	-@ echo ''
+### 	-@ $(TIMER)
+### 	   autoconf
+### 	-@ $(RM) configure~
 
 # Code development overrides must be included specifically before 'configure'
 # generates makedefs.
