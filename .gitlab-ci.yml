@@ -1,0 +1,19 @@
+image: amazonlinux:2
+
+before_script:
+  - yum update -y
+  - yum install -y bzip2 curl gcc git gzip make tar
+  - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  - export PATH=$HOME/.cargo/bin:$PATH
+  - cargo --version
+
+include:
+  - local: .gitlab-ci.build.yml
+  - local: .gitlab-ci.package.yml
+
+stages:
+  - build
+  - package
+
+variables:
+    CI_DEBUG_SERVICES: "true"

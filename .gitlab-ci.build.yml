@@ -1,0 +1,8 @@
+build:
+  stage: build
+  script:
+    - cargo build --release
+  artifacts:
+    paths:
+      - target/release/bootstrap
+

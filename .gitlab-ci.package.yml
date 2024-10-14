@@ -1,0 +1,18 @@
+package:
+  stage: package
+  image: 
+    name: registry.gitlab.com/who-docker/aws-cli:latest
+    entrypoint: ["/bin/sh", "-c"]
+  script:
+    - mv target/release/bootstrap .
+    - zip -j daschscience.zip ./bootstrap
+    - aws s3 cp daschscience.zip s3://$S3_BUCKET/lambda/$CI_COMMIT_REF_NAME/daschscience.zip
+  variables:
+    AWS_ACCESS_KEY_ID: $DEPLOY_ACCESS_KEY_ID
+    AWS_SECRET_ACCESS_KEY: $DEPLOY_SECRET_ACCESS_KEY
+  dependencies:
+    - build
+  only:
+    - main
+    - dev
+    - tags
