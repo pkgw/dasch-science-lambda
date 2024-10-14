@@ -4,7 +4,7 @@ package:
     name: registry.gitlab.com/who-docker/aws-cli:latest
     entrypoint: ["/bin/sh", "-c"]
   script:
-    - mv target/release/bootstrap .
+    - mv target/release/dasch-science-lambda bootstrap
     - zip -j daschscience.zip ./bootstrap
     - aws s3 cp daschscience.zip s3://$S3_BUCKET/lambda/$CI_COMMIT_REF_NAME/daschscience.zip
   variables:

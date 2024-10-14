@@ -4,5 +4,5 @@ build:
     - ACLOCAL=true AUTOCONF=true AUTOMAKE=true cargo build --release
   artifacts:
     paths:
-      - target/release/bootstrap
+      - target/release/dasch-science-lambda
 
