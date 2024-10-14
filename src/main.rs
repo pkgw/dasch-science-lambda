@@ -64,7 +64,10 @@ async fn dispatcher(
 ) -> Result<Value, Error> {
     let (request, context) = event.into_parts();
     let cfg = context.env_config;
-    //println!("*** fn name={} version={}", cfg.function_name, cfg.version);
+    println!(
+        "*** fn name={} version={} {:?}",
+        cfg.function_name, cfg.version, request
+    );
 
     if cfg.function_name.ends_with("cutout") {
         Ok(cutout::handler(request, &dc).await?)
