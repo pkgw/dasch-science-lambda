@@ -243,22 +243,22 @@ pub async fn implementation(
     // Get the detailed plate information. DynamoDB provides a batch_get_item
     // endpoint that manages to meet our needs, but it's annoying to use.
 
-    let mut rows = vec!["series\t\
-        platenum\t\
-        scannum\t\
-        mosnum\t\
-        expnum\t\
-        solnum\t\
-        class\t\
-        ra\t\
-        dec\t\
-        exptime\t\
-        expdate\t\
-        epoch\t\
-        wcssource\t\
-        scandate\t\
-        mosdate\t\
-        centerdist\t\
+    let mut rows = vec!["series,\
+        platenum,\
+        scannum,\
+        mosnum,\
+        expnum,\
+        solnum,\
+        class,\
+        ra,\
+        dec,\
+        exptime,\
+        expdate,\
+        epoch,\
+        wcssource,\
+        scandate,\
+        mosdate,\
+        centerdist,\
         edgedist"
         .to_owned()];
 
@@ -494,8 +494,8 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
         let center_y = 0.5 * (this_height as f64 - 1.);
         let center_text = this_wcs
             .pixel_to_world_scalar(center_x, center_y)
-            .map(|(r, d)| format!("{:.6}\t{:.6}", r, d))
-            .unwrap_or_else(|_e| "\t".to_owned());
+            .map(|(r, d)| format!("{:.6},{:.6}", r, d))
+            .unwrap_or_else(|_e| ",".to_owned());
 
         // Distance between search point and plate center, in cm. This is
         // straightforward to calculate in pixel space, because pixels per cm is
@@ -534,7 +534,7 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
         let mosdate = mos.map(|m| m.creation_date.as_ref()).unwrap_or("");
 
         let row = format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{:.1}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1}",
             plate.series,
             plate.plate_number,
             scan_num,
