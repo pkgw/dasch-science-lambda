@@ -153,7 +153,7 @@ CD2_2   = {:24}                                              ",
 
         let mut pixel = Array::zeros(2);
         pixel[0] = x + 1.;
-        pixel[1] = x + 1.;
+        pixel[1] = y + 1.;
 
         let mut image = Array::<f64, _>::uninit(pixel.dim());
         let mut phi = Array::<f64, _>::uninit(pixel.dim());
