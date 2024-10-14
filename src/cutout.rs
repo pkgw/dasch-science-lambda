@@ -14,7 +14,7 @@
 use aws_sdk_dynamodb::types::AttributeValue;
 use base64::{engine::general_purpose::STANDARD, write::EncoderWriter};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
-use lambda_runtime::Error;
+use lambda_http::Error;
 use ndarray::{s, Array, Axis, Ix2};
 use ndarray_interp::interp2d;
 use serde::Deserialize;
@@ -164,13 +164,18 @@ pub async fn implementation(
     dest_fits.set_f64_header("CD2_2", OUTPUT_IMAGE_PIXSCALE)?;
     dest_fits.set_f64_header("CRPIX1", OUTPUT_IMAGE_HALFSIZE as f64 + 1.)?; // 1-based pixel coords
     dest_fits.set_f64_header("CRPIX2", OUTPUT_IMAGE_HALFSIZE as f64 + 1.)?;
-    let mut dest_wcs = dest_fits.get_wcs()?;
-    let dest_world = dest_wcs.sample_world_square(OUTPUT_IMAGE_FULLSIZE)?;
+
+    let dest_world = {
+        let mut dest_wcs = dest_fits.get_wcs()?;
+        dest_wcs.sample_world_square(OUTPUT_IMAGE_FULLSIZE)?
+    };
 
     // Figure out where we land on the source image.
 
-    let mut src_wcs = load_b01_header(GzDecoder::new(&astrom_data.b01_header_gz[..]))?;
-    let destpix = src_wcs.world_to_pixel(dest_world)?;
+    let destpix = {
+        let mut src_wcs = load_b01_header(GzDecoder::new(&astrom_data.b01_header_gz[..]))?;
+        src_wcs.world_to_pixel(dest_world)?
+    };
 
     let dp_flat = destpix.view().into_shape((OUTPUT_IMAGE_NPIX, 2)).unwrap();
     let mins = dp_flat.map_axis(Axis(0), |view| {

@@ -14,7 +14,7 @@ use anyhow::Result;
 use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_s3;
 use flate2::read::GzDecoder;
-use lambda_runtime::Error;
+use lambda_http::Error;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use serde_json::Value;

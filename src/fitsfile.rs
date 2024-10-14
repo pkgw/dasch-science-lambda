@@ -13,6 +13,11 @@ pub struct FitsFile {
     mem_size: size_t,
 }
 
+/// We need to manually declare sendability due to the pointer type in the
+/// struct. The only code that expects that pointer to be non-null is "gated"
+/// inside a `Pin<Box<>>` type, in which case we're good. I hope.
+unsafe impl Send for FitsFile {}
+
 /// Our error handling is super lame.
 macro_rules! try_cfitsio {
     ($status:expr) => {{
