@@ -48,6 +48,8 @@ const INTERNAL_COLUMNS: &[&str] = &[
     "class",
 ];
 
+/// Sync with `json-schemas/querycat_request.json`, which then needs to be
+/// synced into S3.
 #[derive(Deserialize)]
 pub struct Request {
     refcat: String,

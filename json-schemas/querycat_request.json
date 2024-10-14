@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "refcat": {
+      "type": "string",
+      "enum": [
+        "apass",
+        "atlas"
+      ],
+      "description": "Identifier of the reference catalog to query"
+    },
+    "ra_deg": {
+      "type": "number",
+      "description": "Right Ascension of query center, in degrees"
+    },
+    "dec_deg": {
+      "type": "number",
+      "description": "Declination of search center, in degrees"
+    },
+    "radius_arcsec": {
+      "type": "number",
+      "description": "Search box half-size, in arcseconds"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "refcat",
+    "ra_deg",
+    "dec_deg",
+    "radius_arcsec"
+  ],
+  "description": "Search for reference catalog sources in an RA/Dec box"
+}
