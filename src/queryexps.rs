@@ -17,6 +17,7 @@ use flate2::read::GzDecoder;
 use lambda_runtime::Error;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
+use serde_json::Value;
 use std::{
     collections::HashMap,
     io::{prelude::*, ErrorKind},
@@ -166,7 +167,18 @@ struct SolExp {
     exp_num: i8,
 }
 
-pub async fn handle_queryexps(
+pub async fn handler(
+    req: Value,
+    dc: &aws_sdk_dynamodb::Client,
+    s3: &aws_sdk_s3::Client,
+    binning: &crate::gscbin::GscBinning,
+) -> Result<Value, Error> {
+    Ok(serde_json::to_value(
+        implementation(serde_json::from_value(req)?, dc, s3, binning).await?,
+    )?)
+}
+
+pub async fn implementation(
     request: Request,
     dc: &aws_sdk_dynamodb::Client,
     s3: &aws_sdk_s3::Client,

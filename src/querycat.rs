@@ -1,8 +1,9 @@
-// TODO? serde-dynamo for strongly-typed handling?
+// TODO? we should probably move to serde-dynamo for strongly-typed handling
 
 use aws_sdk_dynamodb::types::AttributeValue;
-use lambda_runtime::{Error, LambdaEvent};
+use lambda_runtime::Error;
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::gscbin::D2R;
 use crate::refnums::refnum_to_text;
@@ -55,15 +56,22 @@ pub struct Request {
     radius_arcsec: f64,
 }
 
-pub async fn handle_querycat(
-    event: LambdaEvent<Request>,
+pub async fn handler(
+    req: Value,
+    dc: &aws_sdk_dynamodb::Client,
+    binning: &crate::gscbin::GscBinning,
+) -> Result<Value, Error> {
+    Ok(serde_json::to_value(
+        implementation(serde_json::from_value(req)?, dc, binning).await?,
+    )?)
+}
+
+pub async fn implementation(
+    request: Request,
     dc: &aws_sdk_dynamodb::Client,
     binning: &crate::gscbin::GscBinning,
 ) -> Result<Vec<String>, Error> {
     let mut lines = Vec::new();
-    let (request, context) = event.into_parts();
-    let cfg = context.env_config;
-    println!("*** fn name={} version={}", cfg.function_name, cfg.version);
 
     // Validation
 

@@ -14,10 +14,11 @@
 use aws_sdk_dynamodb::types::AttributeValue;
 use base64::{engine::general_purpose::STANDARD, write::EncoderWriter};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
-use lambda_runtime::{Error, LambdaEvent};
+use lambda_runtime::Error;
 use ndarray::{s, Array, Axis, Ix2};
 use ndarray_interp::interp2d;
 use serde::Deserialize;
+use serde_json::Value;
 use std::io::{prelude::*, ErrorKind};
 
 use crate::{fitsfile::FitsFile, wcs::Wcs};
@@ -59,14 +60,16 @@ const OUTPUT_IMAGE_FULLSIZE: usize = 2 * OUTPUT_IMAGE_HALFSIZE + 1;
 const OUTPUT_IMAGE_NPIX: usize = OUTPUT_IMAGE_FULLSIZE * OUTPUT_IMAGE_FULLSIZE;
 const OUTPUT_IMAGE_PIXSCALE: f64 = 0.0004; // deg/pix
 
-pub async fn handle_cutout(
-    event: LambdaEvent<Request>,
+pub async fn handler(req: Value, dc: &aws_sdk_dynamodb::Client) -> Result<Value, Error> {
+    Ok(serde_json::to_value(
+        implementation(serde_json::from_value(req)?, dc).await?,
+    )?)
+}
+
+pub async fn implementation(
+    request: Request,
     dc: &aws_sdk_dynamodb::Client,
 ) -> Result<String, Error> {
-    let (request, context) = event.into_parts();
-    let cfg = context.env_config;
-    println!("*** fn name={} version={}", cfg.function_name, cfg.version);
-
     // Early validation, with NaN-sensitive logic
 
     if !(request.center_ra_deg >= 0. && request.center_ra_deg <= 360.) {

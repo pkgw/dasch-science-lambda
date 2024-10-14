@@ -12,6 +12,7 @@
 //! can't emit CSV.
 
 use lambda_runtime::{service_fn, tracing, Error, LambdaEvent};
+use serde_json::Value;
 
 mod cutout;
 mod fitsfile;
@@ -39,20 +40,46 @@ async fn main() -> Result<(), Error> {
     let handler = std::env::var("_HANDLER").expect("_HANDLER provided");
     println!("_HANDLER: {handler}");
 
-    // TODO: once-cell this:
     s3fits::register(config.clone());
 
-    // TEMPORARY: hardcoding queryexps service
     let dc = aws_sdk_dynamodb::Client::new(&config);
     let s3c = aws_sdk_s3::Client::new(&config);
     let bin1 = gscbin::GscBinning::new1();
-    let func = service_fn(|event: LambdaEvent<queryexps::Request>| {
-        let (request, context) = event.into_parts();
-        let cfg = context.env_config;
-        println!("*** fn name={} version={}", cfg.function_name, cfg.version);
-        queryexps::handle_queryexps(request, &dc, &s3c, &bin1)
-    });
-    lambda_runtime::run(func).await?;
+    let bin64 = gscbin::GscBinning::new64();
 
+    let func = service_fn(|event: LambdaEvent<Value>| async {
+        dispatcher(event, &dc, &s3c, &bin1, &bin64).await
+    });
+
+    lambda_runtime::run(func).await?;
     Ok(())
+}
+
+async fn dispatcher(
+    event: LambdaEvent<Value>,
+    dc: &aws_sdk_dynamodb::Client,
+    s3c: &aws_sdk_s3::Client,
+    bin1: &gscbin::GscBinning,
+    bin64: &gscbin::GscBinning,
+) -> Result<Value, Error> {
+    let (request, context) = event.into_parts();
+    let cfg = context.env_config;
+    println!(
+        "*** fn name={} version={} {:?}",
+        cfg.function_name, cfg.version, request
+    );
+
+    if cfg.function_name.ends_with("cutout") {
+        Ok(cutout::handler(request, &dc).await?)
+    } else if cfg.function_name.ends_with("querycat") {
+        Ok(querycat::handler(request, &dc, &bin64).await?)
+    } else if cfg.function_name.ends_with("queryexps") {
+        Ok(queryexps::handler(request, &dc, &s3c, &bin1).await?)
+    } else {
+        Err(format!(
+            "unhandled function name={} version={}",
+            cfg.function_name, cfg.version
+        )
+        .into())
+    }
 }
