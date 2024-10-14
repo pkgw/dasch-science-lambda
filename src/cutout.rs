@@ -23,6 +23,8 @@ use std::io::{prelude::*, ErrorKind};
 
 use crate::{fitsfile::FitsFile, wcs::Wcs};
 
+/// Sync with `json-schemas/cutout_request.json`, which then needs to be
+/// synced into S3.
 #[derive(Deserialize)]
 pub struct Request {
     plate_id: String,
