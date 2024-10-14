@@ -61,16 +61,13 @@ async fn dispatcher(
     bin64: &gscbin::GscBinning,
 ) -> Result<Value, Error> {
     let context = req.lambda_context();
-    println!("ARN: {}", context.invoked_function_arn);
     let payload: Option<Value> = req.payload()?;
-    println!("payload: {:?}", payload);
-    let payload = payload.unwrap(); // XXX TEMP
 
-    if context.invoked_function_arn.contains("cutout") {
+    if context.invoked_function_arn.ends_with("cutout") {
         Ok(cutout::handler(payload, &dc).await?)
-    } else if context.invoked_function_arn.contains("querycat") {
+    } else if context.invoked_function_arn.ends_with("querycat") {
         Ok(querycat::handler(payload, &dc, &bin64).await?)
-    } else if context.invoked_function_arn.contains("queryexps") {
+    } else if context.invoked_function_arn.ends_with("queryexps") {
         Ok(queryexps::handler(payload, &dc, &s3c, &bin1).await?)
     } else {
         Err(format!("unhandled function: {}", context.invoked_function_arn).into())

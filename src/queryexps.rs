@@ -168,13 +168,19 @@ struct SolExp {
 }
 
 pub async fn handler(
-    req: Value,
+    req: Option<Value>,
     dc: &aws_sdk_dynamodb::Client,
     s3: &aws_sdk_s3::Client,
     binning: &crate::gscbin::GscBinning,
 ) -> Result<Value, Error> {
     Ok(serde_json::to_value(
-        implementation(serde_json::from_value(req)?, dc, s3, binning).await?,
+        implementation(
+            serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+            dc,
+            s3,
+            binning,
+        )
+        .await?,
     )?)
 }
 

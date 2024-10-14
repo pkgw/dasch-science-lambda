@@ -57,12 +57,17 @@ pub struct Request {
 }
 
 pub async fn handler(
-    req: Value,
+    req: Option<Value>,
     dc: &aws_sdk_dynamodb::Client,
     binning: &crate::gscbin::GscBinning,
 ) -> Result<Value, Error> {
     Ok(serde_json::to_value(
-        implementation(serde_json::from_value(req)?, dc, binning).await?,
+        implementation(
+            serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+            dc,
+            binning,
+        )
+        .await?,
     )?)
 }
 
