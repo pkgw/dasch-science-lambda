@@ -83,28 +83,23 @@ fn block_on<F: Future<Output = Result<(), c_int>>>(future: F) -> c_int {
 /// Perform global initialization of this driver. Called immediately upon
 /// registration.
 pub extern "C" fn s3fits_driver_init() -> c_int {
-    println!("S3F: init");
     0
 }
 
 pub extern "C" fn s3fits_driver_fitsshutdown() -> c_int {
-    println!("S3F: shutdown");
     0
 }
 
-pub extern "C" fn s3fits_driver_setoptions(options: c_int) -> c_int {
-    println!("S3F: setoptions {}", options);
+pub extern "C" fn s3fits_driver_setoptions(_options: c_int) -> c_int {
     0
 }
 
 pub unsafe extern "C" fn s3fits_driver_getoptions(options: *mut c_int) -> c_int {
-    println!("S3F: getoptions");
     *options = 0;
     0
 }
 
 pub unsafe extern "C" fn s3fits_driver_getversion(version: *mut c_int) -> c_int {
-    println!("S3F: getversion");
     *version = 0;
     0
 }
@@ -113,14 +108,13 @@ pub unsafe extern "C" fn s3fits_driver_getversion(version: *mut c_int) -> c_int 
 /// after the `://`), and/or `outfile` ("the name of the output file that the
 /// input file is to be copied to prior to opening").
 pub unsafe extern "C" fn s3fits_driver_checkfile(
-    urltype: *const c_char,
-    infile: *const c_char,
-    outfile: *const c_char,
+    _urltype: *const c_char,
+    _infile: *const c_char,
+    _outfile: *const c_char,
 ) -> c_int {
-    let urltype = CStr::from_ptr(urltype);
-    let infile = CStr::from_ptr(infile);
-    let outfile = CStr::from_ptr(outfile);
-    println!("S3F: checkfile {:?} {:?} {:?}", urltype, infile, outfile);
+    //let urltype = CStr::from_ptr(urltype);
+    //let infile = CStr::from_ptr(infile);
+    //let outfile = CStr::from_ptr(outfile);
     0
 }
 
@@ -132,11 +126,6 @@ pub unsafe extern "C" fn s3fits_driver_fitsopen(
 ) -> c_int {
     let filename = CStr::from_ptr(filename);
     let filename = String::from_utf8_lossy(filename.to_bytes());
-
-    println!(
-        "S3F: fitsopen {:?} {:?} {:?}",
-        filename, rwmode, driverhandle
-    );
 
     // We only work in read-only mode.
     if rwmode != cfitsio::READONLY {
@@ -174,32 +163,26 @@ pub unsafe extern "C" fn s3fits_driver_fitsopen(
 }
 
 pub extern "C" fn s3fits_driver_fitscreate(
-    filename: *const c_char,
-    driverhandle: *mut c_int,
+    _filename: *const c_char,
+    _driverhandle: *mut c_int,
 ) -> c_int {
-    println!("S3F: fitscreate {:?} {:?}", filename, driverhandle);
     0
 }
 
-pub extern "C" fn s3fits_driver_fitstruncate(driverhandle: c_int, filesize: c_longlong) -> c_int {
-    println!("S3F: fitstruncate {:?} {:?}", driverhandle, filesize);
+pub extern "C" fn s3fits_driver_fitstruncate(_driverhandle: c_int, _filesize: c_longlong) -> c_int {
     0
 }
 
-pub extern "C" fn s3fits_driver_fitsclose(driverhandle: c_int) -> c_int {
-    println!("S3F: fitsclose {:?}", driverhandle);
+pub extern "C" fn s3fits_driver_fitsclose(_driverhandle: c_int) -> c_int {
     0
 }
 
-pub extern "C" fn s3fits_driver_fremove(filename: *const c_char) -> c_int {
-    println!("S3F: fremove {:?}", filename);
+pub extern "C" fn s3fits_driver_fremove(_filename: *const c_char) -> c_int {
     0
 }
 
 /// Get the size of the FITS data at the associated handle.
 pub extern "C" fn s3fits_driver_size(driverhandle: c_int, sizex: *mut c_longlong) -> c_int {
-    println!("S3F: size {:?}", driverhandle);
-
     with_handle(driverhandle, |state| {
         block_on(async move {
             let result = state
@@ -228,14 +211,11 @@ pub extern "C" fn s3fits_driver_size(driverhandle: c_int, sizex: *mut c_longlong
     })
 }
 
-pub extern "C" fn s3fits_driver_flush(driverhandle: c_int) -> c_int {
-    println!("S3F: flush {:?}", driverhandle);
+pub extern "C" fn s3fits_driver_flush(_driverhandle: c_int) -> c_int {
     0
 }
 
 pub extern "C" fn s3fits_driver_seek(driverhandle: c_int, offset: c_longlong) -> c_int {
-    println!("S3F: seek {:?} {:?}", driverhandle, offset);
-
     with_handle(driverhandle, |state| {
         state.offset = offset as u64;
         0
@@ -247,8 +227,6 @@ pub extern "C" fn s3fits_driver_fitsread(
     buffer: *mut c_void,
     nbytes: c_long,
 ) -> c_int {
-    println!("S3F: fitsread {:?} {:?}", driverhandle, nbytes);
-
     // FIXME: should be using MaybeUninit here somehow, I think, but that
     // doesn't appear to be compatible with Cursor. We might need to manually
     // implement the copying rather than relying on `impl Write for Cursor<&mut
@@ -284,14 +262,10 @@ pub extern "C" fn s3fits_driver_fitsread(
 }
 
 pub extern "C" fn s3fits_driver_fitswrite(
-    driverhandle: c_int,
-    buffer: *const c_void,
-    nbytes: c_long,
+    _driverhandle: c_int,
+    _buffer: *const c_void,
+    _nbytes: c_long,
 ) -> c_int {
-    println!(
-        "S3F: fitswrite {:?} {:?} {:?}",
-        driverhandle, buffer, nbytes
-    );
     0
 }
 
@@ -320,5 +294,7 @@ pub fn register(config: SdkConfig) {
         )
     };
 
-    println!("reg result: {}", result);
+    if result != 0 {
+        panic!("CFITSIO driver registration succeeds");
+    }
 }
