@@ -1,7 +1,7 @@
 build:
   stage: build
   script:
-    - cargo build --release
+    - ACLOCAL=true cargo build --release
   artifacts:
     paths:
       - target/release/bootstrap
