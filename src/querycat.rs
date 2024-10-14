@@ -1,7 +1,7 @@
 // TODO? we should probably move to serde-dynamo for strongly-typed handling
 
 use aws_sdk_dynamodb::types::AttributeValue;
-use lambda_runtime::Error;
+use lambda_http::Error;
 use serde::Deserialize;
 use serde_json::Value;
 

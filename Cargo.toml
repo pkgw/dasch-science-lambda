@@ -14,7 +14,7 @@ aws-sdk-s3 = "1.52"
 base64 = "0.22"
 fitswcs-sys = { path = "crates/fitswcs-sys", version = "0.1.0" }
 flate2 = { version = "^1", features = ["zlib"], default-features = false }
-lambda_runtime = "0.13"
+lambda_http = "0.13"
 libc = "0.2"
 # ndarray-interp requires this version of ndarray:
 ndarray = "0.15"

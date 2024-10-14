@@ -11,7 +11,7 @@
 //! Annoyingly, the buffered response mechanism can *only* output JSON, so we
 //! can't emit CSV.
 
-use lambda_runtime::{service_fn, tracing, Error, LambdaEvent};
+use lambda_http::{run, service_fn, tracing, Error, Request, RequestExt, RequestPayloadExt};
 use serde_json::Value;
 
 mod cutout;
@@ -47,39 +47,32 @@ async fn main() -> Result<(), Error> {
     let bin1 = gscbin::GscBinning::new1();
     let bin64 = gscbin::GscBinning::new64();
 
-    let func = service_fn(|event: LambdaEvent<Value>| async {
-        dispatcher(event, &dc, &s3c, &bin1, &bin64).await
-    });
+    let func = service_fn(|req: Request| async { dispatcher(req, &dc, &s3c, &bin1, &bin64).await });
 
-    lambda_runtime::run(func).await?;
+    run(func).await?;
     Ok(())
 }
 
 async fn dispatcher(
-    event: LambdaEvent<Value>,
+    req: Request,
     dc: &aws_sdk_dynamodb::Client,
     s3c: &aws_sdk_s3::Client,
     bin1: &gscbin::GscBinning,
     bin64: &gscbin::GscBinning,
 ) -> Result<Value, Error> {
-    let (request, context) = event.into_parts();
-    let cfg = context.env_config;
-    println!(
-        "*** fn name={} version={} {:?}",
-        cfg.function_name, cfg.version, request
-    );
+    let context = req.lambda_context();
+    println!("ARN: {}", context.invoked_function_arn);
+    let payload: Option<Value> = req.payload()?;
+    println!("payload: {:?}", payload);
+    let payload = payload.unwrap(); // XXX TEMP
 
-    if cfg.function_name.ends_with("cutout") {
-        Ok(cutout::handler(request, &dc).await?)
-    } else if cfg.function_name.ends_with("querycat") {
-        Ok(querycat::handler(request, &dc, &bin64).await?)
-    } else if cfg.function_name.ends_with("queryexps") {
-        Ok(queryexps::handler(request, &dc, &s3c, &bin1).await?)
+    if context.invoked_function_arn.contains("cutout") {
+        Ok(cutout::handler(payload, &dc).await?)
+    } else if context.invoked_function_arn.contains("querycat") {
+        Ok(querycat::handler(payload, &dc, &bin64).await?)
+    } else if context.invoked_function_arn.contains("queryexps") {
+        Ok(queryexps::handler(payload, &dc, &s3c, &bin1).await?)
     } else {
-        Err(format!(
-            "unhandled function name={} version={}",
-            cfg.function_name, cfg.version
-        )
-        .into())
+        Err(format!("unhandled function: {}", context.invoked_function_arn).into())
     }
 }
