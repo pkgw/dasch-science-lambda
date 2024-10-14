@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ra_deg": {
+      "type": "number",
+      "description": "Right Ascension of query center, in degrees"
+    },
+    "dec_deg": {
+      "type": "number",
+      "description": "Declination of search center, in degrees"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "ra_deg",
+    "dec_deg"
+  ],
+  "description": "Search for exposures overlapping the specified coordinates"
+}

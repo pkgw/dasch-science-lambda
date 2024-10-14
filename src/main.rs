@@ -11,7 +11,7 @@
 //! Annoyingly, the buffered response mechanism can *only* output JSON, so we
 //! can't emit CSV.
 
-use lambda_runtime::{service_fn, Error, LambdaEvent};
+use lambda_runtime::{service_fn, tracing, Error, LambdaEvent};
 
 mod cutout;
 mod fitsfile;
@@ -27,6 +27,12 @@ pub const ENVIRONMENT: &str = "dev";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_target(false) // don't print the module name
+        .without_time() // don't print time (CloudWatch has it)
+        .init();
+
     let config = aws_config::load_from_env().await;
 
     // The way that we set up our container, this is always `bootstrap`:
