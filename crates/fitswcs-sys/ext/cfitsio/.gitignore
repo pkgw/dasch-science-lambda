@@ -22,7 +22,6 @@ lib/
 libcfitsio.la
 libtool
 Makefile
-Makefile.in
 smem
 speed
 testf77
