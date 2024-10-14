@@ -108,6 +108,8 @@ static PLATE_SCALE_BY_SERIES: Lazy<HashMap<String, f64>> = Lazy::new(|| {
     .collect()
 });
 
+/// Sync with `json-schemas/queryexps_request.json`, which then needs to be
+/// synced into S3.
 #[derive(Deserialize)]
 pub struct Request {
     pub ra_deg: f64,
