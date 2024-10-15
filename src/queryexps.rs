@@ -528,9 +528,9 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
         let epoch = 2000.0;
         let wcs_source = this_exp
             .and_then(|e| e.center_source.as_ref())
-            .map(|s| s.as_ref())
-            .unwrap_or("");
-        let scandate = "";
+            .map(|s| s.to_lowercase())
+            .unwrap_or("".to_owned());
+        let scandate = ""; // TODO: need to import this into the DB
         let mosdate = mos.map(|m| m.creation_date.as_ref()).unwrap_or("");
 
         let row = format!(
