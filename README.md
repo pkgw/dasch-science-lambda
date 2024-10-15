@@ -1,6 +1,38 @@
 # Lambda Functions for the DASCH Data Access
 
-Sigh, this is silly.
+This repository defines the cloud-based DASCH science data access APIs. They are
+implemented as [AWS Lambdas] in [Rust].
+
+[AWS Lambdas]: https://aws.amazon.com/lambda/
+[Rust]: https://rust-lang.org/
+
+The code is built with a standard Rust `cargo build` command. This creates two
+nearly-identical executables, `dasch-science-lambda-bare` and
+`dasch-science-lambda-proxyevent`. The first is useful for local testing. The
+second supports the [AWS API Gateway proxy event][proxy] protocol, which is what
+is used in the deployed DASCH systems.
+
+[proxy]: https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html
+
+The main APIs are:
+
+- `src/cutout.rs` extracts cutout FITS images from the whole-plate mosaics
+- `src/querycat.rs` queries one of the “reference catalogs” for sources
+- `src/queryexps.rs` queries for plate exposures overlapping a specified sky
+  coordinate. (Plates may have multiple exposures at different sky positions, so
+  one exposure may overlap the coordinate while another does not.)
+
+
+## Local Testing
+
+Local testing of the service requires direct access to DASCH cloud resources
+such as our [DynamoDB] and [S3] assets. Therefore, it's only possible for people
+with sufficient permissions on the DASCH cloud infrastructure.
+
+[DynamoDB]: https://aws.amazon.com/dynamodb/
+[S3]: https://aws.amazon.com/s3/
+
+If that’s you, the recipe is as follows:
 
 Build the builder image:
 
@@ -8,32 +40,30 @@ Build the builder image:
 docker build -t dasch-science-lambda-builder:latest -f Dockerfile.build .
 ```
 
-Use the builder image to build the program:
+Then, to start a server for testing a specific function, use:
 
 ```
-docker run --rm -v $(pwd):/app:rw,z -v $(pwd)/target/host_registry:/usr/local/cargo/registry:rw,z dasch-science-lambda-builder:latest
+./go.sh <FUNCTION>  # <FUNCTION> is one of `cutout`, `querycat`, `queryexps`
 ```
 
-AFAICT think that we need a separate builder image to be able to cache all of
-the intermediates such that we can rebuild quickly.
-
-Build the Lambda container:
+Make requests to the server with commands of the following form:
 
 ```
-docker build -t dasch-science-lambda:latest -f Dockerfile.lambda .
+curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{"ra_deg":0,"dec_deg":0}'
 ```
 
-Run it locally:
 
-```
-docker run --rm -e AWS_REGION -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -p 9000:8080 dasch-science-lambda:latest
-```
+## Deployment
 
-Test locally (placeholder):
+Deployment is automated through GitLab's CI infrastructure. Updates to the `dev`
+branch lead to the `daschscience.zip` deployment package being updated on S3;
+updates to `main` update the production version.
 
-```
-curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{"firstName":"PKGW"}'
-```
+After the deployment package is updated, the API Gateway must be redeployed, which
+is accomplished by triggering one of the apply pipelines of the [`aws_neo4j`]
+repository.
+
+[`aws_neo4j`]:  https://gitlab.com/HarvardRC/rse/cfa-dasch/infra/applications/aws_neo4j/
 
 
 ## Unmanaged resources to close out
