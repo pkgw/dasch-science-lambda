@@ -75,6 +75,29 @@ pub async fn handler(req: Option<Value>, dc: &aws_sdk_dynamodb::Client) -> Resul
     )?)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DeltaRotation {
+    None,
+    Plus90,
+    Plus180,
+    Minus90,
+}
+
+impl TryFrom<isize> for DeltaRotation {
+    type Error = Error;
+
+    fn try_from(n: isize) -> Result<Self, Error> {
+        // The redundant values shouldn't show up in practice, but who knows.
+        match n {
+            0 => Ok(DeltaRotation::None),
+            -180 | 180 => Ok(DeltaRotation::Plus180),
+            -90 | 270 => Ok(DeltaRotation::Minus90),
+            90 | -270 => Ok(DeltaRotation::Plus90),
+            _ => Err(format!("illegal database deltaRotation value {n}").into()),
+        }
+    }
+}
+
 pub async fn implementation(
     request: Request,
     dc: &aws_sdk_dynamodb::Client,
@@ -138,15 +161,7 @@ pub async fn implementation(
         .into());
     }
 
-    // IMPLEMENT THESE:
-
-    if astrom_data.rotation_delta != 0 {
-        return Err(format!(
-            "XXX rotation_delta {} for plate `{}`",
-            astrom_data.rotation_delta, request.plate_id,
-        )
-        .into());
-    }
+    let drot = DeltaRotation::try_from(astrom_data.rotation_delta)?;
 
     // We can compute the target WCS and start building the output FITS.
     //
@@ -182,7 +197,44 @@ pub async fn implementation(
         src_wcs.get(wsn)?.world_to_pixel(dest_world)?
     };
 
-    let dp_flat = destpix.view().into_shape((OUTPUT_IMAGE_NPIX, 2)).unwrap();
+    let mut dp_flat = destpix.into_shape((OUTPUT_IMAGE_NPIX, 2)).unwrap();
+
+    // If there's a "delta rotation" between how the WCS was solved
+    // and the mosaic on disk, we need to transform the WCS pixel coordinates into
+    // the ones appropriate for the actual bitmap
+
+    match drot {
+        DeltaRotation::None => {}
+
+        DeltaRotation::Plus180 => {
+            let w = mos_data.b01_width as f64 - 1.;
+            let h = mos_data.b01_height as f64 - 1.;
+
+            for mut pair in dp_flat.axis_iter_mut(Axis(0)) {
+                pair[0] = w - pair[0];
+                pair[1] = h - pair[1];
+            }
+        }
+
+        DeltaRotation::Minus90 => {
+            let w = mos_data.b01_width as f64 - 1.;
+            for mut pair in dp_flat.axis_iter_mut(Axis(0)) {
+                let old0 = pair[0];
+                pair[0] = w - pair[1];
+                pair[1] = old0;
+            }
+        }
+
+        DeltaRotation::Plus90 => {
+            let h = mos_data.b01_height as f64 - 1.;
+            for mut pair in dp_flat.axis_iter_mut(Axis(0)) {
+                let old0 = pair[0];
+                pair[0] = pair[1];
+                pair[1] = h - old0;
+            }
+        }
+    }
+
     let mins = dp_flat.map_axis(Axis(0), |view| {
         view.into_iter().copied().reduce(f64::min).unwrap()
     });
@@ -242,14 +294,16 @@ pub async fn implementation(
     // Also note that its "x" and "y" terminology is such that 2D arrays are
     // indexed `arr[x,y]`, which is the opposite of our convention.
 
-    let xs = destpix
-        .slice(s![.., .., 0])
+    let xs = dp_flat
+        .view()
+        .slice(s![.., 0])
         .to_owned()
         .into_shape(OUTPUT_IMAGE_NPIX)
         .unwrap()
         - xmin as f64;
-    let ys = destpix
-        .slice(s![.., .., 1])
+    let ys = dp_flat
+        .view()
+        .slice(s![.., 1])
         .to_owned()
         .into_shape(OUTPUT_IMAGE_NPIX)
         .unwrap()
