@@ -692,6 +692,7 @@ dependencies = [
  "fitswcs-sys",
  "flate2",
  "lambda_http",
+ "lambda_runtime",
  "libc",
  "ndarray",
  "ndarray-interp",
