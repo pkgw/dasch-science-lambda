@@ -29,7 +29,7 @@ pub const ENVIRONMENT: &str = "dev";
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
+        .with_max_level(tracing::Level::INFO)
         .with_target(false) // don't print the module name
         .without_time() // don't print time (CloudWatch has it)
         .init();
