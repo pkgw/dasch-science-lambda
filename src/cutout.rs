@@ -170,6 +170,7 @@ pub async fn implementation(
 
     let mut dest_fits = FitsFile::create_mem()?;
     dest_fits.write_square_image_header(OUTPUT_IMAGE_FULLSIZE as u64)?;
+    dest_fits.set_u16_header("BLANK", 0)?;
     dest_fits.set_string_header("CTYPE1", "RA---TAN")?;
     dest_fits.set_string_header("CTYPE2", "DEC--TAN")?;
     dest_fits.set_string_header("CUNIT1", "deg")?;

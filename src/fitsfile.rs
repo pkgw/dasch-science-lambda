@@ -244,6 +244,25 @@ impl FitsFile {
         Ok(())
     }
 
+    /// Set a u16-valued header keyword in the current HDU.
+    pub fn set_u16_header<S: AsRef<str>>(&mut self, key: S, value: u16) -> Result<()> {
+        let key = CString::new(key.as_ref())?;
+        let mut status = 0;
+
+        try_cfitsio!(unsafe {
+            cfitsio::ffuky(
+                self.handle,
+                cfitsio::TSHORT,
+                key.as_ptr(),
+                &value as *const _ as *const _,
+                std::ptr::null(),
+                &mut status,
+            )
+        });
+
+        Ok(())
+    }
+
     /// Write image pixels. We assume that the datatype is `c_short`. The pixel
     /// indices are 0-based, unlike how the underlying library expects.
     pub fn write_pixels(&mut self, data: &Array<i16, Ix2>) -> Result<()> {
