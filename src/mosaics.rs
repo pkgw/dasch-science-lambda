@@ -4,7 +4,7 @@
 //! there's a nice way to do that with projections, and it seems pretty helpful
 //! to maintain those to keep data transfer sizes minimal.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use lambda_http::Error;
 use once_cell::sync::Lazy;
 use std::{
@@ -12,7 +12,7 @@ use std::{
     io::{prelude::*, ErrorKind},
 };
 
-use crate::wcs::Wcs;
+use crate::wcs::WcsCollection;
 
 pub const PIXELS_PER_MM: f64 = 90.9090;
 
@@ -106,7 +106,7 @@ pub static PLATE_SCALE_BY_SERIES: Lazy<HashMap<String, f64>> = Lazy::new(|| {
 /// We *also* need to hack the headers because wcslib only accepts our
 /// distortion terms if the `CTYPEn` values end with `-TPV`; it seems that the
 /// pipeline, which is based on wcstools/libwcs, generates non-standard headers.
-pub fn load_b01_header<R: Read>(mut src: R) -> Result<Wcs, Error> {
+pub fn load_b01_header<R: Read>(mut src: R) -> Result<WcsCollection, Error> {
     let mut header = Vec::new();
     let mut n_rec = 0;
     let mut buf = vec![0; 80];
@@ -150,5 +150,28 @@ pub fn load_b01_header<R: Read>(mut src: R) -> Result<Wcs, Error> {
         }
     }
 
-    Ok(unsafe { Wcs::new_raw(header.as_ptr() as *const _, n_rec) }?)
+    Ok(unsafe { WcsCollection::new_raw(header.as_ptr() as *const _, n_rec) }?)
+}
+
+/// DASCH WCS headers are constructed as follows: if there's only one solution,
+/// it appears with the ' ' "tag", which is index 0 according to WCS lib. If
+/// there is more than one solution, the ' ' tag always has the *most recent*
+/// solution, and solutions are accumulated under tags "A", "B", "C", etc. So if
+/// we want solnum 0 in a 1-solution header, we look at tag 0; otherwise we look
+/// at tag "A". The most recent solution appears twice: under the " " tag, *and*
+/// under the appropriate letter.
+pub fn wcslib_solnum(solnum: usize, n_solutions: usize) -> Result<usize> {
+    if solnum >= n_solutions {
+        bail!(
+            "illegal WCS solution number {} (0-based); there are only {}",
+            solnum,
+            n_solutions
+        );
+    }
+
+    Ok(if n_solutions == 1 {
+        0
+    } else {
+        solnum + 1 // 1 <=> "A", 2 <=> "B", etc
+    })
 }

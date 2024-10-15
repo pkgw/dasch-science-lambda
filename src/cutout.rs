@@ -20,7 +20,10 @@ use ndarray_interp::interp2d;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{fitsfile::FitsFile, mosaics::load_b01_header};
+use crate::{
+    fitsfile::FitsFile,
+    mosaics::{load_b01_header, wcslib_solnum},
+};
 
 /// Sync with `json-schemas/cutout_request.json`, which then needs to be
 /// synced into S3.
@@ -85,8 +88,6 @@ pub async fn implementation(
         return Err("illegal center_dec_deg parameter".into());
     }
 
-    println!("CUTOUT: validated");
-
     // Get the information we need about this plate and validate the basic request.
 
     let plates_table = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
@@ -136,8 +137,6 @@ pub async fn implementation(
         .into());
     }
 
-    dbg!();
-
     // IMPLEMENT THESE:
 
     if astrom_data.rotation_delta != 0 {
@@ -147,16 +146,6 @@ pub async fn implementation(
         )
         .into());
     }
-
-    if request.solution_number != 0 {
-        return Err(format!(
-            "XXX solnum {} for plate `{}`",
-            request.solution_number, request.plate_id,
-        )
-        .into());
-    }
-
-    dbg!();
 
     // We can compute the target WCS and start building the output FITS.
     //
@@ -178,16 +167,18 @@ pub async fn implementation(
 
     let dest_world = {
         let mut dest_wcs = dest_fits.get_wcs()?;
-        dest_wcs.sample_world_square(OUTPUT_IMAGE_FULLSIZE)?
+        dest_wcs
+            .get(0)
+            .unwrap()
+            .sample_world_square(OUTPUT_IMAGE_FULLSIZE)?
     };
-
-    dbg!();
 
     // Figure out where we land on the source image.
 
     let destpix = {
         let mut src_wcs = load_b01_header(GzDecoder::new(&astrom_data.b01_header_gz[..]))?;
-        src_wcs.world_to_pixel(dest_world)?
+        let wsn = wcslib_solnum(request.solution_number, astrom_data.n_solutions)?;
+        src_wcs.get(wsn)?.world_to_pixel(dest_world)?
     };
 
     let dp_flat = destpix.view().into_shape((OUTPUT_IMAGE_NPIX, 2)).unwrap();

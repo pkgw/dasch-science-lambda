@@ -122,7 +122,7 @@ impl FitsFile {
     }
 
     /// Get a Wcs object based on the current HDU's headers.
-    pub fn get_wcs(&mut self) -> Result<wcs::Wcs> {
+    pub fn get_wcs(&mut self) -> Result<wcs::WcsCollection> {
         let mut header: *const c_char = std::ptr::null();
         let mut nkeys: c_int = 0;
         let mut status: c_int = 0;
@@ -138,7 +138,7 @@ impl FitsFile {
                 &mut status,
             ));
 
-            let wcs = wcs::Wcs::new_raw(header, nkeys)?;
+            let wcs = wcs::WcsCollection::new_raw(header, nkeys)?;
             libc::free(header as *mut _);
             wcs
         };

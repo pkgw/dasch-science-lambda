@@ -21,8 +21,8 @@ use std::collections::HashMap;
 use tokio::io::AsyncBufReadExt;
 
 use crate::{
-    mosaics::{load_b01_header, PIXELS_PER_MM, PLATE_SCALE_BY_SERIES},
-    wcs::Wcs,
+    mosaics::{load_b01_header, wcslib_solnum, PIXELS_PER_MM, PLATE_SCALE_BY_SERIES},
+    wcs::WcsCollection,
 };
 
 const BUCKET: &str = "dasch-prod-user";
@@ -321,14 +321,17 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
     for solexp in solexps {
         #[allow(unused_assignments)]
         let mut maybe_temp_wcs = None;
+        let mut this_wcslib_solnum = 0;
         let mut this_wcs = None;
         let mut this_width = width;
         let mut this_height = height;
         let mut this_exp = None;
 
         if solexp.sol_num >= 0 && (solexp.sol_num as usize) < n_solutions {
-            // Yay, we have real WCS for this one. We can only get here if solved_wcs is Some.
+            // Yay, we have real WCS for this one. We can only get here if
+            // solved_wcs is Some, and we just checked the sol_num is valid.
             this_wcs = Some(solved_wcs.as_mut().unwrap());
+            this_wcslib_solnum = wcslib_solnum(solexp.sol_num as usize, n_solutions).unwrap();
         }
 
         // We want to find the exposure record of interest. The list of
@@ -366,8 +369,10 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
 
                                 let ps = pixel_scale.unwrap(); // checked above
                                 let crpix = 0.5 * (naxis_for_approx as f64 + 1.);
-                                maybe_temp_wcs = Some(Wcs::new_tan(ra, dec, crpix, crpix, ps));
+                                maybe_temp_wcs =
+                                    Some(WcsCollection::new_tan(ra, dec, crpix, crpix, ps));
                                 this_wcs = maybe_temp_wcs.as_mut();
+                                this_wcslib_solnum = 0;
                                 this_width = naxis_for_approx;
                                 this_height = naxis_for_approx;
                             }
@@ -384,9 +389,9 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
         // We tried our best. There *should* always be a WCS to use, but if not,
         // treat this plate+solexp as a non-match: ignore it.
 
-        let this_wcs = match this_wcs {
-            Some(w) => w,
-            None => continue,
+        let mut this_wcs = match this_wcs.map(|w| w.get(this_wcslib_solnum)) {
+            Some(Ok(w)) => w,
+            _ => continue,
         };
 
         // Finally we can check whether this plate+solexp actually intersects
