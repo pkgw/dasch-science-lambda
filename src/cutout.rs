@@ -86,6 +86,8 @@ pub async fn implementation(
         return Err("illegal center_dec_deg parameter".into());
     }
 
+    println!("CUTOUT: validated");
+
     // Get the information we need about this plate and validate the basic request.
 
     let plates_table = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
@@ -135,6 +137,8 @@ pub async fn implementation(
         .into());
     }
 
+    dbg!();
+
     // IMPLEMENT THESE:
 
     if astrom_data.rotation_delta != 0 {
@@ -152,6 +156,8 @@ pub async fn implementation(
         )
         .into());
     }
+
+    dbg!();
 
     // We can compute the target WCS and start building the output FITS.
     //
@@ -175,6 +181,8 @@ pub async fn implementation(
         let mut dest_wcs = dest_fits.get_wcs()?;
         dest_wcs.sample_world_square(OUTPUT_IMAGE_FULLSIZE)?
     };
+
+    dbg!();
 
     // Figure out where we land on the source image.
 
@@ -215,6 +223,8 @@ pub async fn implementation(
     // this "blocking" wrapper thread, which in turn creates its own runtime and
     // does the S3 work.
 
+    dbg!();
+
     println!(
         "to fetch: {} rows, {} cols, {} total pixels",
         src_ny,
@@ -234,6 +244,8 @@ pub async fn implementation(
         Ok(fits.read_rectangle(xmin, ymin, src_nx, src_ny)?)
     })
     .await??;
+
+    dbg!();
 
     // Perform the interpolation
     //
@@ -265,6 +277,8 @@ pub async fn implementation(
         .unwrap();
     let dest_data = dest_data.mapv(|e| e as i16);
 
+    dbg!();
+
     // Write out the pixels, and we're done.
     //
     // Buffered lambdas can only emit JSON values. We emit the result as a
@@ -281,6 +295,8 @@ pub async fn implementation(
         let mut dest = GzEncoder::new(dest_gz, Compression::default());
         dest_fits.into_stream(&mut dest)?;
     }
+
+    dbg!();
 
     let dest_gz_b64 = String::from_utf8(dest_gz_b64)?;
     Ok(dest_gz_b64)
