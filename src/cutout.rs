@@ -213,8 +213,6 @@ pub async fn implementation(
     // this "blocking" wrapper thread, which in turn creates its own runtime and
     // does the S3 work.
 
-    dbg!();
-
     println!(
         "to fetch: {} rows, {} cols, {} total pixels",
         src_ny,
@@ -234,8 +232,6 @@ pub async fn implementation(
         Ok(fits.read_rectangle(xmin, ymin, src_nx, src_ny)?)
     })
     .await??;
-
-    dbg!();
 
     // Perform the interpolation
     //
@@ -267,8 +263,6 @@ pub async fn implementation(
         .unwrap();
     let dest_data = dest_data.mapv(|e| e as i16);
 
-    dbg!();
-
     // Write out the pixels, and we're done.
     //
     // Buffered lambdas can only emit JSON values. We emit the result as a
@@ -285,8 +279,6 @@ pub async fn implementation(
         let mut dest = GzEncoder::new(dest_gz, Compression::default());
         dest_fits.into_stream(&mut dest)?;
     }
-
-    dbg!();
 
     let dest_gz_b64 = String::from_utf8(dest_gz_b64)?;
     Ok(dest_gz_b64)
