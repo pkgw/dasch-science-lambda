@@ -2,7 +2,7 @@ image: amazonlinux:2023
 
 before_script:
   - yum update -y
-  - yum install -y autoconf automake bzip2 gcc gcc-c++ git gzip make tar zlib-devel
+  - yum install -y bzip2 gcc gcc-c++ git gzip make tar zlib-devel
   - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
   - export PATH=$HOME/.cargo/bin:$PATH
   - cargo --version
