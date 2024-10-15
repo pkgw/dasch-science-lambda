@@ -1,11 +1,11 @@
 //! The AWS/Lambda-powered DASCH data services
 //!
 //! This library crate implements the data services needed for the DASCH
-//! Lambdas. This common codebase is then compiled into two different
-//! executables: `dasch-science-lambda-bare` and
-//! `dasch-science-lambda-proxyevent`. The former is useful for local testing.
-//! while the latter has support for the more complex AWS API Gateway "proxy
-//! event" framework that we for our actual cloud deployment.
+//! Lambdas. This common codebase is then compiled into three different
+//! executables: `dasch-science-lambda-oneshot`, `dasch-science-lambda-bare` and
+//! `dasch-science-lambda-proxyevent`. The first two are useful for local
+//! testing. while the last has support for the more complex AWS API Gateway
+//! "proxy event" framework that we for our actual cloud deployment.
 //!
 //! It was hard to find good examples of how a Rust Lambda implementation should
 //! look. Here's one good one:
