@@ -15,99 +15,16 @@ use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_s3;
 use flate2::read::GzDecoder;
 use lambda_http::Error;
-use once_cell::sync::Lazy;
 use serde::Deserialize;
 use serde_json::Value;
-use std::{
-    collections::HashMap,
-    io::{prelude::*, ErrorKind},
-};
+use std::collections::HashMap;
 use tokio::io::AsyncBufReadExt;
 
-use crate::wcs::Wcs;
-
-const BUCKET: &str = "dasch-prod-user";
-
-const PIXELS_PER_MM: f64 = 90.9090;
-
-// These are from the DASCH SQL DB `scanner.series` table, looking at the
-// non-NULL `fittedPlateScale` values when available, otherwise
-// `nominalPlateScale`. Values are arcsec per millimeter.
-static PLATE_SCALE_BY_SERIES: Lazy<HashMap<String, f64>> = Lazy::new(|| {
-    [
-        ("a", 59.57),
-        ("ab", 590.), // nominal
-        ("ac", 606.4),
-        ("aco", 611.3),
-        ("adh", 68.), // nominal
-        ("ai", 1360.),
-        ("ak", 614.5),
-        ("al", 1200.), // nominal
-        ("am", 610.8),
-        ("an", 574.), // nominal
-        ("ax", 695.7),
-        ("ay", 694.2),
-        ("b", 179.4),
-        ("bi", 1446.),
-        ("bm", 384.),
-        ("bo", 800.), // nominal
-        ("br", 204.),
-        ("c", 52.56),
-        ("ca", 596.),
-        ("ctio", 18.),
-        ("darnor", 890.), // nominal
-        ("darsou", 890.), // nominal
-        ("dnb", 577.3),
-        ("dnr", 579.7),
-        ("dny", 576.1),
-        ("dsb", 574.5),
-        ("dsr", 579.7),
-        ("dsy", 581.8),
-        ("ee", 330.),
-        ("er", 390.), // nominal
-        ("fa", 1298.),
-        ("h", 59.6),
-        ("hale", 11.06), // nominal
-        ("i", 163.3),
-        ("ir", 164.),
-        ("j", 98.),     // nominal
-        ("jdar", 560.), // nominal
-        ("ka", 1200.),  // nominal
-        ("kb", 1200.),  // nominal
-        ("kc", 650.),   // nominal
-        ("kd", 650.),   // nominal
-        ("ke", 1160.),  // nominal
-        ("kf", 1160.),  // nominal
-        ("kg", 1160.),  // nominal
-        ("kge", 1160.), // nominal
-        ("kh", 1160.),  // nominal
-        ("lwla", 36.687),
-        ("ma", 93.7),
-        ("mb", 390.),
-        ("mc", 97.9),
-        ("md", 193.),      // nominal
-        ("me", 600.),      // nominal
-        ("meteor", 1200.), // nominal
-        ("mf", 167.3),
-        ("na", 100.),
-        ("pas", 95.64),
-        ("poss", 67.19), // nominal
-        ("pz", 1553.),
-        ("r", 390.), // nominal
-        ("rb", 395.5),
-        ("rh", 391.3),
-        ("rl", 290.), // nominal
-        ("ro", 390.), // nominal
-        ("s", 26.3),  // nominal
-        ("sb", 26.),  // nominal
-        ("sh", 26.),  // nominal
-        ("x", 42.3),
-        ("yb", 55.),
-    ]
-    .iter()
-    .map(|t| (t.0.to_owned(), t.1))
-    .collect()
-});
+use crate::{
+    mosaics::{load_b01_header, wcslib_solnum, PIXELS_PER_MM, PLATE_SCALE_BY_SERIES},
+    wcs::WcsCollection,
+    BUCKET,
+};
 
 /// Sync with `json-schemas/queryexps_request.json`, which then needs to be
 /// synced into S3.
@@ -238,7 +155,7 @@ pub async fn implementation(
         solexps.push(SolExp { sol_num, exp_num });
     }
 
-    println!("Coarse bin query got {} plates", candidates.len());
+    eprintln!("Coarse bin query got {} plates", candidates.len());
 
     // Get the detailed plate information. DynamoDB provides a batch_get_item
     // endpoint that manages to meet our needs, but it's annoying to use.
@@ -403,14 +320,17 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
     for solexp in solexps {
         #[allow(unused_assignments)]
         let mut maybe_temp_wcs = None;
+        let mut this_wcslib_solnum = 0;
         let mut this_wcs = None;
         let mut this_width = width;
         let mut this_height = height;
         let mut this_exp = None;
 
         if solexp.sol_num >= 0 && (solexp.sol_num as usize) < n_solutions {
-            // Yay, we have real WCS for this one. We can only get here if solved_wcs is Some.
+            // Yay, we have real WCS for this one. We can only get here if
+            // solved_wcs is Some, and we just checked the sol_num is valid.
             this_wcs = Some(solved_wcs.as_mut().unwrap());
+            this_wcslib_solnum = wcslib_solnum(solexp.sol_num as usize, n_solutions).unwrap();
         }
 
         // We want to find the exposure record of interest. The list of
@@ -448,8 +368,10 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
 
                                 let ps = pixel_scale.unwrap(); // checked above
                                 let crpix = 0.5 * (naxis_for_approx as f64 + 1.);
-                                maybe_temp_wcs = Some(Wcs::new_tan(ra, dec, crpix, crpix, ps));
+                                maybe_temp_wcs =
+                                    Some(WcsCollection::new_tan(ra, dec, crpix, crpix, ps));
                                 this_wcs = maybe_temp_wcs.as_mut();
+                                this_wcslib_solnum = 0;
                                 this_width = naxis_for_approx;
                                 this_height = naxis_for_approx;
                             }
@@ -466,9 +388,9 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
         // We tried our best. There *should* always be a WCS to use, but if not,
         // treat this plate+solexp as a non-match: ignore it.
 
-        let this_wcs = match this_wcs {
-            Some(w) => w,
-            None => continue,
+        let mut this_wcs = match this_wcs.map(|w| w.get(this_wcslib_solnum)) {
+            Some(Ok(w)) => w,
+            _ => continue,
         };
 
         // Finally we can check whether this plate+solexp actually intersects
@@ -528,9 +450,9 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
         let epoch = 2000.0;
         let wcs_source = this_exp
             .and_then(|e| e.center_source.as_ref())
-            .map(|s| s.as_ref())
-            .unwrap_or("");
-        let scandate = "";
+            .map(|s| s.to_lowercase())
+            .unwrap_or("".to_owned());
+        let scandate = ""; // TODO: need to import this into the DB
         let mosdate = mos.map(|m| m.creation_date.as_ref()).unwrap_or("");
 
         let row = format!(
@@ -554,62 +476,4 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
         );
         rows.push(row);
     }
-}
-
-/// The bin01 header is stored in the DynamoDB as bytes, which are gzipped text
-/// of an ASCII FITS header file. This file consists of 80-character lines of
-/// header text, separated by newlines, without a trailing newline.
-///
-/// As far as I can tell, the wcslib header parser will only handle data as they
-/// are stored in FITS files: no newline separators allowed. So we need to munge
-/// the data. We also need to give wcslib a count of headers.
-///
-/// We *also* need to hack the headers because wcslib only accepts our
-/// distortion terms if the `CTYPEn` values end with `-TPV`; it seems that the
-/// pipeline, which is based on wcstools/libwcs, generates non-standard headers.
-fn load_b01_header<R: Read>(mut src: R) -> Result<Wcs, Error> {
-    let mut header = Vec::new();
-    let mut n_rec = 0;
-    let mut buf = vec![0; 80];
-
-    loop {
-        // The final record does not have a newline character,
-        // so we can't read in chunks of 81.
-
-        if let Err(e) = src.read_exact(&mut buf[..]) {
-            if e.kind() == ErrorKind::UnexpectedEof {
-                break;
-            } else {
-                return Err(e.into());
-            }
-        }
-
-        // TAN/TPV hack. With the rigid FITS keyword structure, we know exactly where to
-        // look:
-        if buf.starts_with(b"CTYPE") && buf[15..].starts_with(b"-TAN") {
-            buf[15..19].clone_from_slice(b"-TPV");
-        }
-
-        header.append(&mut buf);
-        n_rec += 1;
-        buf.resize(80, 0); // the `append` truncates `buf`
-
-        if let Err(e) = src.read_exact(&mut buf[..1]) {
-            if e.kind() == ErrorKind::UnexpectedEof {
-                break;
-            } else {
-                return Err(e.into());
-            }
-        }
-
-        if buf[0] != b'\n' {
-            return Err(format!(
-                "malformatted ASCII-FITS header: expected newline, got {:x}",
-                buf[0]
-            )
-            .into());
-        }
-    }
-
-    Ok(unsafe { Wcs::new_raw(header.as_ptr() as *const _, n_rec) }?)
 }

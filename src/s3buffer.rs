@@ -37,7 +37,6 @@ impl BufferKind {
 
 #[derive(Debug)]
 struct Buffer {
-    pub kind: BufferKind,
     pub data: Vec<u8>,
     pub start_file_offset: u64,
 }
@@ -45,7 +44,6 @@ struct Buffer {
 impl Buffer {
     fn new(kind: BufferKind) -> Self {
         Buffer {
-            kind,
             data: Vec::with_capacity(kind.capacity()),
             start_file_offset: 0,
         }
@@ -93,7 +91,7 @@ impl Buffer {
         self.data.clear();
         self.start_file_offset = offset;
 
-        eprintln!("+s3buf {:?} fetching @ {}", self.kind, offset);
+        //eprintln!("+s3buf {:?} fetching @ {}", self.kind, offset);
 
         let mut result = get
             .range(format!(

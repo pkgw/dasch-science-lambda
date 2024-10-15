@@ -19,9 +19,12 @@ use ndarray::{s, Array, Axis, Ix2};
 use ndarray_interp::interp2d;
 use serde::Deserialize;
 use serde_json::Value;
-use std::io::{prelude::*, ErrorKind};
 
-use crate::{fitsfile::FitsFile, wcs::Wcs};
+use crate::{
+    fitsfile::FitsFile,
+    mosaics::{load_b01_header, wcslib_solnum},
+    BUCKET,
+};
 
 /// Sync with `json-schemas/cutout_request.json`, which then needs to be
 /// synced into S3.
@@ -86,8 +89,6 @@ pub async fn implementation(
         return Err("illegal center_dec_deg parameter".into());
     }
 
-    println!("CUTOUT: validated");
-
     // Get the information we need about this plate and validate the basic request.
 
     let plates_table = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
@@ -137,8 +138,6 @@ pub async fn implementation(
         .into());
     }
 
-    dbg!();
-
     // IMPLEMENT THESE:
 
     if astrom_data.rotation_delta != 0 {
@@ -148,16 +147,6 @@ pub async fn implementation(
         )
         .into());
     }
-
-    if request.solution_number != 0 {
-        return Err(format!(
-            "XXX solnum {} for plate `{}`",
-            request.solution_number, request.plate_id,
-        )
-        .into());
-    }
-
-    dbg!();
 
     // We can compute the target WCS and start building the output FITS.
     //
@@ -179,16 +168,18 @@ pub async fn implementation(
 
     let dest_world = {
         let mut dest_wcs = dest_fits.get_wcs()?;
-        dest_wcs.sample_world_square(OUTPUT_IMAGE_FULLSIZE)?
+        dest_wcs
+            .get(0)
+            .unwrap()
+            .sample_world_square(OUTPUT_IMAGE_FULLSIZE)?
     };
-
-    dbg!();
 
     // Figure out where we land on the source image.
 
     let destpix = {
         let mut src_wcs = load_b01_header(GzDecoder::new(&astrom_data.b01_header_gz[..]))?;
-        src_wcs.world_to_pixel(dest_world)?
+        let wsn = wcslib_solnum(request.solution_number, astrom_data.n_solutions)?;
+        src_wcs.get(wsn)?.world_to_pixel(dest_world)?
     };
 
     let dp_flat = destpix.view().into_shape((OUTPUT_IMAGE_NPIX, 2)).unwrap();
@@ -223,9 +214,7 @@ pub async fn implementation(
     // this "blocking" wrapper thread, which in turn creates its own runtime and
     // does the S3 work.
 
-    dbg!();
-
-    println!(
+    eprintln!(
         "to fetch: {} rows, {} cols, {} total pixels",
         src_ny,
         src_nx,
@@ -236,7 +225,7 @@ pub async fn implementation(
         .s3_key_template
         .replace("{bin}", "01")
         .replace("{tnx}", "_tnx");
-    let s3url = format!("s3://dasch-prod-user/{s3path}");
+    let s3url = format!("s3://{BUCKET}/{s3path}");
 
     let src_data = tokio::task::spawn_blocking(move || -> Result<Array<i16, Ix2>, Error> {
         let mut fits = FitsFile::open(s3url)?;
@@ -244,8 +233,6 @@ pub async fn implementation(
         Ok(fits.read_rectangle(xmin, ymin, src_nx, src_ny)?)
     })
     .await??;
-
-    dbg!();
 
     // Perform the interpolation
     //
@@ -277,8 +264,6 @@ pub async fn implementation(
         .unwrap();
     let dest_data = dest_data.mapv(|e| e as i16);
 
-    dbg!();
-
     // Write out the pixels, and we're done.
     //
     // Buffered lambdas can only emit JSON values. We emit the result as a
@@ -296,66 +281,6 @@ pub async fn implementation(
         dest_fits.into_stream(&mut dest)?;
     }
 
-    dbg!();
-
     let dest_gz_b64 = String::from_utf8(dest_gz_b64)?;
     Ok(dest_gz_b64)
-}
-
-/// The bin01 header is stored in the DynamoDB as bytes, which are gzipped text
-/// of an ASCII FITS header file. This file consists of 80-character lines of
-/// header text, separated by newlines, without a trailing newline.
-///
-/// As far as I can tell, the wcslib header parser will only handle data as they
-/// are stored in FITS files: no newline separators allowed. So we need to munge
-/// the data. We also need to give wcslib a count of headers.
-///
-/// We *also* need to hack the headers because wcslib only accepts our
-/// distortion terms if the `CTYPEn` values end with `-TPV`; it seems that the
-/// pipeline, which is based on wcstools/libwcs, generates non-standard headers.
-fn load_b01_header<R: Read>(mut src: R) -> Result<Wcs, Error> {
-    let mut header = Vec::new();
-    let mut n_rec = 0;
-    let mut buf = vec![0; 80];
-
-    loop {
-        // The final record does not have a newline character,
-        // so we can't read in chunks of 81.
-
-        if let Err(e) = src.read_exact(&mut buf[..]) {
-            if e.kind() == ErrorKind::UnexpectedEof {
-                break;
-            } else {
-                return Err(e.into());
-            }
-        }
-
-        // TAN/TPV hack. With the rigid FITS keyword structure, we know exactly where to
-        // look:
-        if buf.starts_with(b"CTYPE") && buf[15..].starts_with(b"-TAN") {
-            buf[15..19].clone_from_slice(b"-TPV");
-        }
-
-        header.append(&mut buf);
-        n_rec += 1;
-        buf.resize(80, 0); // the `append` truncates `buf`
-
-        if let Err(e) = src.read_exact(&mut buf[..1]) {
-            if e.kind() == ErrorKind::UnexpectedEof {
-                break;
-            } else {
-                return Err(e.into());
-            }
-        }
-
-        if buf[0] != b'\n' {
-            return Err(format!(
-                "malformatted ASCII-FITS header: expected newline, got {:x}",
-                buf[0]
-            )
-            .into());
-        }
-    }
-
-    Ok(unsafe { Wcs::new_raw(header.as_ptr() as *const _, n_rec) }?)
 }

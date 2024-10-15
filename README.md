@@ -6,11 +6,11 @@ implemented as [AWS Lambdas] in [Rust].
 [AWS Lambdas]: https://aws.amazon.com/lambda/
 [Rust]: https://rust-lang.org/
 
-The code is built with a standard Rust `cargo build` command. This creates two
-nearly-identical executables, `dasch-science-lambda-bare` and
-`dasch-science-lambda-proxyevent`. The first is useful for local testing. The
-second supports the [AWS API Gateway proxy event][proxy] protocol, which is what
-is used in the deployed DASCH systems.
+The code is built with a standard Rust `cargo build` command. This creates three
+nearly-identical executables, `dasch-science-lambda-oneshot`,
+`dasch-science-lambda-bare` and `dasch-science-lambda-proxyevent`. The first two
+are useful for local testing. The third supports the [AWS API Gateway proxy
+event][proxy] protocol, which is what is used in the deployed DASCH systems.
 
 [proxy]: https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html
 
@@ -32,9 +32,12 @@ with sufficient permissions on the DASCH cloud infrastructure.
 [DynamoDB]: https://aws.amazon.com/dynamodb/
 [S3]: https://aws.amazon.com/s3/
 
-If that’s you, the recipe is as follows:
+If that’s you, the `oneshot` executable performs one API request, taking the API
+name (the Lambda function ARN, in the AWS context) and a JSON payload as
+command-line arguments. This is the easiest to run and you can attach a debugger
+to it.
 
-Build the builder image:
+To run the `bare` API server, first build the builder image:
 
 ```
 docker build -t dasch-science-lambda-builder:latest -f Dockerfile.build .

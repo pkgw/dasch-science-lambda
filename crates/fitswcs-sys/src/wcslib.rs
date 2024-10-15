@@ -44,6 +44,9 @@ extern "C" {
         stat: *mut c_int,
     ) -> c_int;
 
-    /// Free a WCS structure.
-    pub fn wcsfree(wcs: WcsPrm) -> c_int;
+    /// Get size of WCS structure; sizes must be able to fit 2 ints
+    pub fn wcssize(wcs: WcsPrm, sizes: *mut c_int) -> c_int;
+
+    /// Free a list of WCS structures.
+    pub fn wcsvfree(nwcs: *mut c_int, wcs: *mut WcsPrm) -> c_int;
 }
