@@ -23,6 +23,7 @@ use serde_json::Value;
 use crate::{
     fitsfile::FitsFile,
     mosaics::{load_b01_header, wcslib_solnum},
+    BUCKET,
 };
 
 /// Sync with `json-schemas/cutout_request.json`, which then needs to be
@@ -224,7 +225,7 @@ pub async fn implementation(
         .s3_key_template
         .replace("{bin}", "01")
         .replace("{tnx}", "_tnx");
-    let s3url = format!("s3://dasch-prod-user/{s3path}");
+    let s3url = format!("s3://{BUCKET}/{s3path}");
 
     let src_data = tokio::task::spawn_blocking(move || -> Result<Array<i16, Ix2>, Error> {
         let mut fits = FitsFile::open(s3url)?;

@@ -34,6 +34,8 @@ mod wcs;
 
 pub const ENVIRONMENT: &str = "dev";
 
+pub const BUCKET: &str = "dasch-prod-user";
+
 pub struct Services {
     dc: aws_sdk_dynamodb::Client,
     s3c: aws_sdk_s3::Client,

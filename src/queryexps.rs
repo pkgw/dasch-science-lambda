@@ -23,9 +23,8 @@ use tokio::io::AsyncBufReadExt;
 use crate::{
     mosaics::{load_b01_header, wcslib_solnum, PIXELS_PER_MM, PLATE_SCALE_BY_SERIES},
     wcs::WcsCollection,
+    BUCKET,
 };
-
-const BUCKET: &str = "dasch-prod-user";
 
 /// Sync with `json-schemas/queryexps_request.json`, which then needs to be
 /// synced into S3.
