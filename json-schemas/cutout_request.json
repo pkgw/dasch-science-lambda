@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "plate_id": {
+      "type": "string",
+      "description": "The identifier of the desired plate (e.g., \"a03393\")"
+    },
+    "solution_number": {
+      "type": "number",
+      "description": "The WCS solution serial number to use (nonnegative integer)"
+    },
+    "center_ra_deg": {
+      "type": "number",
+      "description": "Right Ascension of cutout image center, in degrees"
+    },
+    "center_dec_deg": {
+      "type": "number",
+      "description": "Declination of cutout image center, in degrees"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "plate_id",
+    "solution_number",
+    "center_ra_deg",
+    "center_dec_deg"
+  ],
+  "description": "Generate a cutout of the specified plate and WCS solution"
+}
