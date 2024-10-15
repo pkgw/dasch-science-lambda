@@ -204,7 +204,7 @@ pub async fn implementation(
 
     let dec_bin = binning.get_dec_bin(request.dec_deg);
     let total_bin = binning.get_total_bin(dec_bin, request.ra_deg);
-    let s3_key = format!("dasch-dr7-coverage-bins/test{}.csv", total_bin); // !!!!!!!
+    let s3_key = format!("dasch-dr7-coverage-bins/{}.csv", total_bin);
 
     let resp = s3.get_object().bucket(BUCKET).key(&s3_key).send().await?;
     let body = resp.body.into_async_read();
