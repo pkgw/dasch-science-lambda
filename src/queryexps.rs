@@ -155,7 +155,7 @@ pub async fn implementation(
         solexps.push(SolExp { sol_num, exp_num });
     }
 
-    println!("Coarse bin query got {} plates", candidates.len());
+    eprintln!("Coarse bin query got {} plates", candidates.len());
 
     // Get the detailed plate information. DynamoDB provides a batch_get_item
     // endpoint that manages to meet our needs, but it's annoying to use.

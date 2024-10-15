@@ -214,7 +214,7 @@ pub async fn implementation(
     // this "blocking" wrapper thread, which in turn creates its own runtime and
     // does the S3 work.
 
-    println!(
+    eprintln!(
         "to fetch: {} rows, {} cols, {} total pixels",
         src_ny,
         src_nx,
