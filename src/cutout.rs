@@ -19,9 +19,8 @@ use ndarray::{s, Array, Axis, Ix2};
 use ndarray_interp::interp2d;
 use serde::Deserialize;
 use serde_json::Value;
-use std::io::{prelude::*, ErrorKind};
 
-use crate::{fitsfile::FitsFile, wcs::Wcs};
+use crate::{fitsfile::FitsFile, mosaics::load_b01_header};
 
 /// Sync with `json-schemas/cutout_request.json`, which then needs to be
 /// synced into S3.
@@ -300,62 +299,4 @@ pub async fn implementation(
 
     let dest_gz_b64 = String::from_utf8(dest_gz_b64)?;
     Ok(dest_gz_b64)
-}
-
-/// The bin01 header is stored in the DynamoDB as bytes, which are gzipped text
-/// of an ASCII FITS header file. This file consists of 80-character lines of
-/// header text, separated by newlines, without a trailing newline.
-///
-/// As far as I can tell, the wcslib header parser will only handle data as they
-/// are stored in FITS files: no newline separators allowed. So we need to munge
-/// the data. We also need to give wcslib a count of headers.
-///
-/// We *also* need to hack the headers because wcslib only accepts our
-/// distortion terms if the `CTYPEn` values end with `-TPV`; it seems that the
-/// pipeline, which is based on wcstools/libwcs, generates non-standard headers.
-fn load_b01_header<R: Read>(mut src: R) -> Result<Wcs, Error> {
-    let mut header = Vec::new();
-    let mut n_rec = 0;
-    let mut buf = vec![0; 80];
-
-    loop {
-        // The final record does not have a newline character,
-        // so we can't read in chunks of 81.
-
-        if let Err(e) = src.read_exact(&mut buf[..]) {
-            if e.kind() == ErrorKind::UnexpectedEof {
-                break;
-            } else {
-                return Err(e.into());
-            }
-        }
-
-        // TAN/TPV hack. With the rigid FITS keyword structure, we know exactly where to
-        // look:
-        if buf.starts_with(b"CTYPE") && buf[15..].starts_with(b"-TAN") {
-            buf[15..19].clone_from_slice(b"-TPV");
-        }
-
-        header.append(&mut buf);
-        n_rec += 1;
-        buf.resize(80, 0); // the `append` truncates `buf`
-
-        if let Err(e) = src.read_exact(&mut buf[..1]) {
-            if e.kind() == ErrorKind::UnexpectedEof {
-                break;
-            } else {
-                return Err(e.into());
-            }
-        }
-
-        if buf[0] != b'\n' {
-            return Err(format!(
-                "malformatted ASCII-FITS header: expected newline, got {:x}",
-                buf[0]
-            )
-            .into());
-        }
-    }
-
-    Ok(unsafe { Wcs::new_raw(header.as_ptr() as *const _, n_rec) }?)
 }

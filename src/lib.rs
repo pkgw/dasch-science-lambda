@@ -24,6 +24,7 @@ use serde_json::Value;
 mod cutout;
 mod fitsfile;
 mod gscbin;
+mod mosaics;
 mod querycat;
 mod queryexps;
 mod refnums;
