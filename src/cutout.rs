@@ -191,25 +191,26 @@ pub async fn implementation(
 
     // Figure out where we land on the source image.
 
-    let destpix = {
+    let (destpix, destflags) = {
         let mut src_wcs = load_b01_header(GzDecoder::new(&astrom_data.b01_header_gz[..]))?;
         let wsn = wcslib_solnum(request.solution_number, astrom_data.n_solutions)?;
         src_wcs.get(wsn)?.world_to_pixel(dest_world)?
     };
 
     let mut dp_flat = destpix.into_shape((OUTPUT_IMAGE_NPIX, 2)).unwrap();
+    let mut df_flat = destflags.into_shape(OUTPUT_IMAGE_NPIX).unwrap();
 
     // If there's a "delta rotation" between how the WCS was solved
     // and the mosaic on disk, we need to transform the WCS pixel coordinates into
     // the ones appropriate for the actual bitmap
 
+    let w = mos_data.b01_width as f64 - 1.;
+    let h = mos_data.b01_height as f64 - 1.;
+
     match drot {
         DeltaRotation::None => {}
 
         DeltaRotation::Plus180 => {
-            let w = mos_data.b01_width as f64 - 1.;
-            let h = mos_data.b01_height as f64 - 1.;
-
             for mut pair in dp_flat.axis_iter_mut(Axis(0)) {
                 pair[0] = w - pair[0];
                 pair[1] = h - pair[1];
@@ -217,7 +218,6 @@ pub async fn implementation(
         }
 
         DeltaRotation::Minus90 => {
-            let w = mos_data.b01_width as f64 - 1.;
             for mut pair in dp_flat.axis_iter_mut(Axis(0)) {
                 let old0 = pair[0];
                 pair[0] = w - pair[1];
@@ -226,7 +226,6 @@ pub async fn implementation(
         }
 
         DeltaRotation::Plus90 => {
-            let h = mos_data.b01_height as f64 - 1.;
             for mut pair in dp_flat.axis_iter_mut(Axis(0)) {
                 let old0 = pair[0];
                 pair[0] = pair[1];
@@ -235,10 +234,57 @@ pub async fn implementation(
         }
     }
 
-    let mins = dp_flat.map_axis(Axis(0), |view| {
+    // Now, flag out any points that fall off of the bitmap. We may already have
+    // some points that are flagged based on what wcslib found.
+
+    df_flat.zip_mut_with(&dp_flat.slice(s![.., 0]), |flag, xval| {
+        if *xval < 0. || *xval > w {
+            *flag = 1;
+        }
+    });
+
+    df_flat.zip_mut_with(&dp_flat.slice(s![.., 1]), |flag, yval| {
+        if *yval < 0. || *yval > h {
+            *flag = 1;
+        }
+    });
+
+    // ndarray doesn't have fancy-indexing or boolean mask indexing, so to
+    // accomplish the filtering, we need to compress the array manually.
+
+    let mut decompress_indices = Array::uninit(OUTPUT_IMAGE_NPIX);
+    let mut next_index = 0;
+
+    for full_index in 0..OUTPUT_IMAGE_NPIX {
+        if df_flat[full_index] == 0 {
+            decompress_indices[next_index].write(full_index);
+
+            if next_index != full_index {
+                dp_flat[(next_index, 0)] = dp_flat[(full_index, 0)];
+                dp_flat[(next_index, 1)] = dp_flat[(full_index, 1)];
+            }
+
+            next_index += 1;
+        }
+    }
+
+    if next_index == 0 {
+        return Err(format!(
+            "plate `{}` solnum {} does not overlap the target region",
+            request.plate_id, request.solution_number,
+        )
+        .into());
+    }
+
+    let n_filtered = next_index;
+    let dp_filtered = dp_flat.slice(s![0..n_filtered, ..]);
+    let dci_filtered = decompress_indices.slice(s![0..n_filtered]);
+    let dci_filtered = unsafe { dci_filtered.assume_init() }; // We've initialized this subset
+
+    let mins = dp_filtered.map_axis(Axis(0), |view| {
         view.into_iter().copied().reduce(f64::min).unwrap()
     });
-    let maxs = dp_flat.map_axis(Axis(0), |view| {
+    let maxs = dp_filtered.map_axis(Axis(0), |view| {
         view.into_iter().copied().reduce(f64::max).unwrap()
     });
 
@@ -251,6 +297,7 @@ pub async fn implementation(
     let src_ny = ymax + 1 - ymin;
 
     if src_nx < 1 || src_ny < 1 {
+        // With our filtering this shouldn't be possible, but just in case ...
         return Err(format!(
             "plate `{}` solnum {} does not overlap the target region",
             request.plate_id, request.solution_number,
@@ -294,29 +341,56 @@ pub async fn implementation(
     // Also note that its "x" and "y" terminology is such that 2D arrays are
     // indexed `arr[x,y]`, which is the opposite of our convention.
 
-    let xs = dp_flat
+    let xs = dp_filtered
         .view()
         .slice(s![.., 0])
         .to_owned()
-        .into_shape(OUTPUT_IMAGE_NPIX)
+        .into_shape(n_filtered)
         .unwrap()
         - xmin as f64;
-    let ys = dp_flat
+    let ys = dp_filtered
         .view()
         .slice(s![.., 1])
         .to_owned()
-        .into_shape(OUTPUT_IMAGE_NPIX)
+        .into_shape(n_filtered)
         .unwrap()
         - ymin as f64;
 
     let src_data = src_data.mapv(|e| e as f64);
     let interp = interp2d::Interp2DBuilder::new(src_data).build()?;
-    let mut dest_data: Array<f64, _> = Array::zeros(xs.len());
-    interp.interp_array_into(&ys, &xs, dest_data.view_mut())?;
+
+    // Full-size destination bitmap, interpreted as 1D:
+    let mut dest_data: Array<f64, _> = Array::zeros(OUTPUT_IMAGE_NPIX);
+
+    // We'll interpolate into the first n_filtered cells of the array:
+    interp.interp_array_into(&ys, &xs, dest_data.slice_mut(s![..n_filtered]))?;
+
+    let mut dest_data = dest_data.mapv(|e| e as i16);
+
+    // Now decompress from the filtered portion out into the full array. We have
+    // to do this backwards since the first pixels might overwrite ones that are
+    // at indices less than n_filtered.
+
+    for filtered_index in (0..n_filtered).rev() {
+        let full_index = dci_filtered[filtered_index];
+
+        if full_index != filtered_index {
+            dest_data[full_index] = dest_data[filtered_index];
+        }
+
+        // If this actual cell ought to be flagged, make sure to zero it out.
+        // Otherwise, the "actual" value for this cell will be written by some
+        // other cell at a smaller filtered_index.
+        if df_flat[filtered_index] != 0 {
+            dest_data[filtered_index] = 0;
+        }
+    }
+
+    // After all that, we're ready to reinterpret this as a 2D array.
+
     let dest_data = dest_data
         .into_shape((OUTPUT_IMAGE_FULLSIZE, OUTPUT_IMAGE_FULLSIZE))
         .unwrap();
-    let dest_data = dest_data.mapv(|e| e as i16);
 
     // Write out the pixels, and we're done.
     //

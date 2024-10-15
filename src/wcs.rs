@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use fitswcs_sys::wcslib;
 use libc::{c_char, c_int};
-use ndarray::{Array, Ix3};
+use ndarray::{Array, Ix2, Ix3};
 
 #[derive(Debug)]
 pub struct WcsCollection {
@@ -158,7 +158,10 @@ impl<'a> Wcs<'a> {
     /// are 0-based.
     ///
     /// As usual here, we hardcode for our specific use case.
-    pub fn world_to_pixel(&mut self, world: Array<f64, Ix3>) -> Result<Array<f64, Ix3>> {
+    pub fn world_to_pixel(
+        &mut self,
+        world: Array<f64, Ix3>,
+    ) -> Result<(Array<f64, Ix3>, Array<c_int, Ix2>)> {
         let ncoord = world.shape()[0] * world.shape()[1];
         const NELEM: c_int = 2;
 
@@ -166,7 +169,7 @@ impl<'a> Wcs<'a> {
         let mut theta = Array::<f64, _>::uninit(world.dim());
         let mut image = Array::<f64, _>::uninit(world.dim());
         let mut pixel = Array::<f64, _>::uninit(world.dim());
-        let mut status = Array::<c_int, _>::uninit(ncoord);
+        let mut status = Array::<c_int, _>::uninit((world.shape()[0], world.shape()[1]));
 
         try_wcslib!(unsafe {
             wcslib::wcss2p(
@@ -183,20 +186,30 @@ impl<'a> Wcs<'a> {
         });
 
         let mut pixel = unsafe { pixel.assume_init() };
+        let status = unsafe { status.assume_init() };
 
         // Convert to 0-based pixel indices.
         pixel -= 1.;
 
-        Ok(pixel)
+        Ok((pixel, status))
     }
 
     /// Dumb utility. We should use generics better.
-    pub fn world_to_pixel_scalar(&mut self, ra_deg: f64, dec_deg: f64) -> Result<(f64, f64)> {
+    pub fn world_to_pixel_scalar(
+        &mut self,
+        ra_deg: f64,
+        dec_deg: f64,
+    ) -> Result<Option<(f64, f64)>> {
         let mut world = Array::zeros((1, 1, 2));
         world[(0, 0, 0)] = ra_deg;
         world[(0, 0, 1)] = dec_deg;
-        let pixel = self.world_to_pixel(world)?;
-        Ok((pixel[(0, 0, 0)], pixel[(0, 0, 1)]))
+        let (pixel, status) = self.world_to_pixel(world)?;
+        let maybe = if status[(0, 0)] == 0 {
+            Some((pixel[(0, 0, 0)], pixel[(0, 0, 1)]))
+        } else {
+            None
+        };
+        Ok(maybe)
     }
 
     /// Dumb utility. We should use generics better.
