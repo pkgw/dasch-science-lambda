@@ -36,9 +36,18 @@ impl FitsFile {
         let c_url = CString::new(url.as_ref())?;
         let mut status = 0;
 
-        try_cfitsio!(unsafe {
-            cfitsio::ffopen(&mut handle, c_url.as_ptr(), cfitsio::READONLY, &mut status)
-        });
+        let result =
+            unsafe { cfitsio::ffopen(&mut handle, c_url.as_ptr(), cfitsio::READONLY, &mut status) };
+
+        if result == cfitsio::FILE_NOT_OPENED {
+            bail!("file not found: {}", url.as_ref());
+        } else if result != 0 {
+            bail!(
+                "cfitsio error code {} while attempting to open {}",
+                result,
+                url.as_ref()
+            );
+        }
 
         Ok(FitsFile {
             handle,
