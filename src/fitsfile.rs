@@ -36,9 +36,18 @@ impl FitsFile {
         let c_url = CString::new(url.as_ref())?;
         let mut status = 0;
 
-        try_cfitsio!(unsafe {
-            cfitsio::ffopen(&mut handle, c_url.as_ptr(), cfitsio::READONLY, &mut status)
-        });
+        let result =
+            unsafe { cfitsio::ffopen(&mut handle, c_url.as_ptr(), cfitsio::READONLY, &mut status) };
+
+        if result == cfitsio::FILE_NOT_OPENED {
+            bail!("file not found: {}", url.as_ref());
+        } else if result != 0 {
+            bail!(
+                "cfitsio error code {} while attempting to open {}",
+                result,
+                url.as_ref()
+            );
+        }
 
         Ok(FitsFile {
             handle,
@@ -234,6 +243,25 @@ impl FitsFile {
             cfitsio::ffuky(
                 self.handle,
                 cfitsio::TDOUBLE,
+                key.as_ptr(),
+                &value as *const _ as *const _,
+                std::ptr::null(),
+                &mut status,
+            )
+        });
+
+        Ok(())
+    }
+
+    /// Set a u16-valued header keyword in the current HDU.
+    pub fn set_u16_header<S: AsRef<str>>(&mut self, key: S, value: u16) -> Result<()> {
+        let key = CString::new(key.as_ref())?;
+        let mut status = 0;
+
+        try_cfitsio!(unsafe {
+            cfitsio::ffuky(
+                self.handle,
+                cfitsio::TSHORT,
                 key.as_ptr(),
                 &value as *const _ as *const _,
                 std::ptr::null(),

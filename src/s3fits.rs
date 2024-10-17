@@ -193,8 +193,8 @@ pub extern "C" fn s3fits_driver_size(driverhandle: c_int, sizex: *mut c_longlong
                 .send()
                 .await
                 .map_err(|e| {
-                    eprintln!("S3 op failed: {}", e);
-                    cfitsio::READ_ERROR
+                    eprintln!("S3 HeadObject op failed: {}", e);
+                    cfitsio::FILE_NOT_OPENED
                 })?;
 
             let cl = result.content_length.ok_or_else(|| {

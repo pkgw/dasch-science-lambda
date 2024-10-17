@@ -397,8 +397,8 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
         // with the point of interest!
 
         let (x, y) = match this_wcs.world_to_pixel_scalar(req.ra_deg, req.dec_deg) {
-            Ok(c) => c,
-            Err(_) => continue,
+            Ok(Some(c)) => c,
+            _ => continue,
         };
 
         if x < -0.5 || x > (this_width as f64 - 0.5) || y < -0.5 || y > (this_height as f64 - 0.5) {
