@@ -93,12 +93,11 @@ impl Buffer {
 
         //eprintln!("+s3buf {:?} fetching @ {}", self.kind, offset);
 
+        // If we need more than our buffer fits, just grow the buffer.
+        let end_byte = offset + usize::max(self.data.capacity(), nbytes) as u64 - 1;
+
         let mut result = get
-            .range(format!(
-                "bytes={}-{}",
-                offset,
-                offset + self.data.capacity() as u64 - 1
-            ))
+            .range(format!("bytes={}-{}", offset, end_byte))
             .send()
             .await?;
 
