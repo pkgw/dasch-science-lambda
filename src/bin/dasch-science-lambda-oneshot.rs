@@ -15,7 +15,7 @@ async fn main() -> Result<(), Error> {
     args.next(); // skip argv[0]
 
     let arn = args.next().ok_or_else(|| -> Error {
-        "first argument should be ARN to use (cutout, querycat, queryexps)".into()
+        "first argument should be ARN to use (cutout, lightcurve, querycat, queryexps)".into()
     })?;
 
     let json_text = args
