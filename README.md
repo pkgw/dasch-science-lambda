@@ -68,11 +68,3 @@ is accomplished by triggering one of the apply pipelines of the [`aws_neo4j`]
 repository.
 
 [`aws_neo4j`]:  https://gitlab.com/HarvardRC/rse/cfa-dasch/infra/applications/aws_neo4j/
-
-
-## Unmanaged resources to close out
-
-- `dasch_dev_refcat_apass` DynamoDB table
-- `dasch-dr7/dev` ECR private registry
-- `dasch-dev-dr7-querycat` Lambda
-- `dasch-dev-dr7-querycat-role-gw8usqt5` lambda exec role
