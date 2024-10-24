@@ -9,7 +9,7 @@ func="$1"
 shift
 
 if [ -z "$func" ] ; then
-  echo >&2 "fatal: need to specify a function: cutout, lightcurve, querycat, queryexps"
+  echo >&2 "fatal: need to specify a function: cutout lightcurve platephot querycat queryexps"
   exit 1
 fi
 

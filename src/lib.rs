@@ -26,6 +26,7 @@ mod fitsfile;
 mod gscbin;
 mod lightcurve;
 mod mosaics;
+mod platephot;
 mod querycat;
 mod queryexps;
 mod refnums;
@@ -94,6 +95,8 @@ impl Services {
             Ok(cutout::handler(payload, &self.dc).await?)
         } else if arn.ends_with("lightcurve") {
             Ok(lightcurve::handler(payload, &self.bin64).await?)
+        } else if arn.ends_with("platephot") {
+            Ok(platephot::handler(payload, &self.bin64).await?)
         } else if arn.ends_with("querycat") {
             Ok(querycat::handler(payload, &self.dc, &self.bin64).await?)
         } else if arn.ends_with("queryexps") {

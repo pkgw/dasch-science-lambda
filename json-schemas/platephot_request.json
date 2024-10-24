@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "refcat": {
+      "type": "string",
+      "enum": [
+        "apass",
+        "atlas"
+      ],
+      "description": "Identifier of the reference catalog to query"
+    },
+    "ref_number": {
+      "type": "number",
+      "description": "The reference number of the source of interest within the catalog"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "refcat",
+    "ref_number"
+  ],
+  "description": "Retrieve photometry for a specified plate subregion"
+}
