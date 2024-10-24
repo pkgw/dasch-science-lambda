@@ -98,7 +98,7 @@ pub static PLATE_SCALE_BY_SERIES: Lazy<HashMap<String, f64>> = Lazy::new(|| {
 /// Mapping from numerical series ID to series identifier. This captures the
 /// DASCH SQL table `photometry.photseries`. Valid IDs range from 1 to 99,
 /// inclusive.
-pub const SERIES_BY_ID: &[&str] = &[
+pub const PLATE_SERIES_BY_ID: &[&str] = &[
     "INVALID", // 0
     "a",       // 1
     "ac",      // 2
@@ -200,6 +200,15 @@ pub const SERIES_BY_ID: &[&str] = &[
     "v",       // 98
     "poss",    // 99
 ];
+
+// An inversion of PLATE_SERIES_BY_ID
+pub static PLATE_ID_BY_SERIES: Lazy<HashMap<String, u8>> = Lazy::new(|| {
+    PLATE_SERIES_BY_ID[1..]
+        .iter()
+        .enumerate()
+        .map(|t| ((**t.1).to_owned(), (t.0 + 1) as u8))
+        .collect()
+});
 
 /// The bin01 header is stored in the DynamoDB as bytes, which are gzipped text
 /// of an ASCII FITS header file. This file consists of 80-character lines of

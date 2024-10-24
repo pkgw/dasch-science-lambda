@@ -11,7 +11,7 @@ use std::{
     io::{Read, Seek},
 };
 
-use crate::mosaics::SERIES_BY_ID;
+use crate::mosaics::PLATE_SERIES_BY_ID;
 
 #[derive(BinarySerde, Debug, PartialEq)]
 struct MagRecord {
@@ -220,7 +220,7 @@ impl ToString for OutputRecord {
         cells.push(self.solution_number.to_string());
         cells.push(self.spatial_bin.to_string());
         cells.push(self.catalog_number.to_string());
-        cells.push(SERIES_BY_ID[self.series_id as usize].to_string());
+        cells.push(PLATE_SERIES_BY_ID[self.series_id as usize].to_string());
 
         cells.join(",")
     }

@@ -9,16 +9,31 @@
       ],
       "description": "Identifier of the reference catalog to query"
     },
-    "ref_number": {
+    "plate_id": {
+      "type": "string",
+      "description": "The identifier of the desired plate (e.g., \"a03393\")"
+    },
+    "solution_number": {
       "type": "number",
-      "description": "The reference number of the source of interest within the catalog"
+      "description": "The WCS solution serial number to use (nonnegative integer)"
+    },
+    "center_ra_deg": {
+      "type": "number",
+      "description": "Right Ascension of query center, in degrees"
+    },
+    "center_dec_deg": {
+      "type": "number",
+      "description": "Declination of query center, in degrees"
     }
   },
   "additionalProperties": false,
   "type": "object",
   "required": [
     "refcat",
-    "ref_number"
+    "plate_id",
+    "solution_number",
+    "center_ra_deg",
+    "center_dec_deg"
   ],
   "description": "Retrieve photometry for a specified plate subregion"
 }
