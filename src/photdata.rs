@@ -11,7 +11,7 @@ use crate::mosaics::PLATE_SERIES_BY_ID;
 pub struct MagRecord {
     marker: u32,
     version: u32,
-    ref_number: u64,
+    pub ref_number: u64,
     x_image: f64,
     y_image: f64,
     mag_iso: f64,
@@ -347,5 +347,83 @@ impl OutputRecord {
         cells.push(PLATE_SERIES_BY_ID[self.series_id as usize].to_string());
 
         cells.join(",")
+    }
+}
+
+#[derive(BinarySerde, Debug, PartialEq)]
+struct LimitsPlateRecord {
+    rec_type: u32,
+    rec_version: u32,
+    limiting_mag_local: f64,
+    geo_jd: f64,
+    series_id: u32,
+    plate_number: u32,
+    mosaic_number: u32,
+    solution_number: u32,
+    version: u32,
+    _unused: u32,
+}
+
+impl From<LimitsPlateRecord> for OutputRecord {
+    fn from(lim: LimitsPlateRecord) -> Self {
+        OutputRecord {
+            ref_number: 0,
+            x_image: f64::NAN,
+            y_image: f64::NAN,
+            mag_iso: f64::NAN,
+            ra_deg: f64::NAN,
+            dec_deg: f64::NAN,
+            date_jd: lim.geo_jd,
+            flux_iso: f64::NAN,
+            mag_aper: f64::NAN,
+            mag_auto: f64::NAN,
+            kron_radius: f64::NAN,
+            background: f64::NAN,
+            flux_max_adu: f64::NAN,
+            theta_j2000: f64::NAN,
+            ellipticity: f64::NAN,
+            iso_area_sqdeg: f64::NAN,
+            fwhm_pix: f64::NAN,
+            fwhm_deg: f64::NAN,
+            plate_center_dist_deg: f64::NAN,
+            blended_mag: f64::NAN,
+            drad_rms2: f64::NAN,
+            ra_cat_corrected: f64::NAN,
+            dec_cat_corrected: f64::NAN,
+            magcal_iso: f32::NAN,
+            magcal_iso_rms: f32::NAN,
+            magcal_local: f32::NAN,
+            magcal_local_rms: f32::NAN,
+            limiting_mag_local: lim.limiting_mag_local as f32,
+            magcal_local_error: f32::NAN,
+            magcor_local: f32::NAN,
+            extinction: f32::NAN,
+            magcal_magdep: f32::NAN,
+            magcal_magdep_rms: f32::NAN,
+            pm_ra_masyr: f32::NAN,
+            pm_dec_masyr: f32::NAN,
+            time_accuracy_days: f32::NAN,
+            gsc_bin_index: 0,
+            plate_number: lim.plate_number,
+            sextractor_number: 0,
+            version_id: 0,
+            aflags: 0,
+            a2flags: 0,
+            bflags: 0,
+            b2flags: 0,
+            iso_areas: [0; 8],
+            npoints_local: 0,
+            reject_flag: 0,
+            magdep_bin: 0,
+            pass_bits: 0,
+            local_bin_index: 0,
+            mask_index: 0,
+            series_id: lim.series_id as u8,
+            exposure_number: -1,
+            solution_number: lim.solution_number as u8,
+            mosaic_number: lim.mosaic_number as i8,
+            spatial_bin: 0,
+            catalog_number: 0,
+        }
     }
 }
