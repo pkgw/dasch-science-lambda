@@ -1,8 +1,9 @@
 //! Dealing with the DASCH photometry data.
 
-use binary_serde::BinarySerde;
+use binary_serde::{BinarySerde, Endianness};
+use lambda_http::Error;
 
-use crate::mosaics::PLATE_SERIES_BY_ID;
+use crate::{gscbin::GscBinning, mosaics::PLATE_SERIES_BY_ID, BUCKET};
 
 /// A record in the binary "magfiles" that store compiled DASCH photometry data.
 /// We cannot rearrange any fields here -- this struct captures the format used
@@ -426,4 +427,68 @@ impl From<LimitsPlateRecord> for OutputRecord {
             catalog_number: 0,
         }
     }
+}
+
+#[derive(BinarySerde, Debug, PartialEq)]
+struct LimitsIndexRecord {
+    byte_offset: u64,
+    byte_length: u64,
+}
+
+/// Given a sky position, retrieve the limiting-magnitude data associated with
+/// it.
+///
+/// The return value will be a buffer of the binary data, which can be unpacked
+/// into LimitsPlateRecord values.
+pub async fn get_limiting_records(
+    refcat: &str,
+    ra_deg: f64,
+    dec_deg: f64,
+    s3: &aws_sdk_s3::Client,
+    bin2: &GscBinning,
+) -> Result<Vec<u8>, Error> {
+    let dec_bin = bin2.get_dec_bin(dec_deg);
+    let total_bin = bin2.get_total_bin(dec_bin, ra_deg);
+
+    // Look up this bin in the index
+
+    let start_byte = total_bin * LimitsIndexRecord::SERIALIZED_SIZE;
+    let s3_key = format!("dasch-dr7-phot-{}/lim_aws.idx", refcat);
+    let data = s3
+        .get_object()
+        .bucket(BUCKET)
+        .key(&s3_key)
+        .range(format!(
+            "bytes={}-{}",
+            start_byte,
+            start_byte + LimitsIndexRecord::SERIALIZED_SIZE - 1
+        ))
+        .send()
+        .await?
+        .body
+        .collect()
+        .await?
+        .to_vec();
+
+    let rec = LimitsIndexRecord::binary_deserialize(&data, Endianness::Little)
+        .map_err(|e| -> Error { format!("deserialize failed: {e}").into() })?;
+
+    // Now we can fetch the actual payload
+
+    let s3_key = format!("dasch-dr7-phot-{}/limiting.dat", refcat);
+    Ok(s3
+        .get_object()
+        .bucket(BUCKET)
+        .key(&s3_key)
+        .range(format!(
+            "bytes={}-{}",
+            rec.byte_offset,
+            rec.byte_offset + rec.byte_length - 1
+        ))
+        .send()
+        .await?
+        .body
+        .collect()
+        .await?
+        .to_vec())
 }

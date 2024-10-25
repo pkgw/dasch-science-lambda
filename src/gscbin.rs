@@ -30,6 +30,11 @@ impl GscBinning {
         Self::new_generic(1.0, 180, 41164)
     }
 
+    pub fn new2() -> Self {
+        // dec bin size is 0.5 degree
+        Self::new_generic(0.5, 360, 164828)
+    }
+
     fn new_generic(bin_size: f64, dec_bins: usize, total_gsc_bins: usize) -> Self {
         let mut master_index = Vec::with_capacity(dec_bins);
         let mut ra_sum = 0;
