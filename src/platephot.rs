@@ -205,10 +205,15 @@ pub async fn implementation(
     let mut buf = index_data; // Might as well reuse this buffer
 
     for (file_number, start_offset, end_offset) in chunks {
-        eprintln!("req: {file_number} {start_offset} {end_offset}");
+        eprintln!("req: {file_number} {start_offset} {end_offset:?}");
 
         buf.clear();
-        let n_bytes = (end_offset - start_offset) as usize;
+
+        let range = if let Some(e) = end_offset {
+            format!("bytes={}-{}", start_offset, e - 1)
+        } else {
+            format!("bytes={}-", start_offset)
+        };
 
         let s3_key = format!(
             "dasch-dr7-phot-{}/mags/{}.dat",
@@ -219,7 +224,7 @@ pub async fn implementation(
             .get_object()
             .bucket(BUCKET)
             .key(&s3_key)
-            .range(format!("bytes={}-{}", start_offset, end_offset - 1))
+            .range(range)
             .send()
             .await?;
 
@@ -230,20 +235,12 @@ pub async fn implementation(
             buf.extend_from_slice(&bytes);
         }
 
-        if buf.len() < n_bytes {
-            return Err(format!(
-                "short photodata S3 read: {} {file_number} {start_offset} {end_offset}",
-                &request.refcat
-            )
-            .into());
-        }
-
         for c in buf.chunks_exact(MagRecord::SERIALIZED_SIZE) {
             let rec = MagRecord::binary_deserialize(c, Endianness::Little).unwrap();
 
-            if rec.series_id != series_id
-                || rec.plate_number as usize != item.plate_number
-                || rec.solution_number as usize != request.solution_number
+            if rec.series_id == series_id
+                && rec.plate_number as usize == item.plate_number
+                && rec.solution_number as usize == request.solution_number
             {
                 eprintln!("match: {:?}", rec);
                 lines.push(rec.into_output(mos_data.mos_num).as_csv_row());
@@ -272,7 +269,7 @@ async fn read_mega_index(
     let n_bytes = end_byte + 1 - start_byte;
     let mut buf = Vec::with_capacity(n_bytes);
 
-    let s3_key = format!("dasch-dr7-phot-{}/megaindex.dat", refcat);
+    let s3_key = format!("dasch-dr7-phot-{}/megaindex.idx", refcat);
 
     let mut result = s3
         .get_object()
@@ -308,7 +305,7 @@ impl Offset {
 }
 
 struct FileRangeBuilder {
-    chunks: Vec<(isize, i32, i32)>,
+    chunks: Vec<(isize, i32, Option<i32>)>,
 
     /// File numbers go up to 169 million, so they fit in an isize.
     cur_file_number: isize,
@@ -326,18 +323,21 @@ impl FileRangeBuilder {
     /// Whatever chunk we're looking at is *not* contiguous with the chunk that
     /// we've been building up. So, finish up processing of what we've been
     /// working on.
-    fn finish_chunk(&mut self) {
+    fn finish_chunk(&mut self, read_to_end: bool) {
         if self.cur_start_offset >= 0 {
+            let end = if read_to_end {
+                None
+            } else {
+                Some(self.cur_end_offset)
+            };
+
             eprintln!(
-                "file chunk: {} {} {}",
-                self.cur_file_number, self.cur_start_offset, self.cur_end_offset,
+                "file chunk: {} {} {:?}",
+                self.cur_file_number, self.cur_start_offset, end,
             );
 
-            self.chunks.push((
-                self.cur_file_number,
-                self.cur_start_offset,
-                self.cur_end_offset,
-            ));
+            self.chunks
+                .push((self.cur_file_number, self.cur_start_offset, end));
             self.cur_start_offset = -1;
             self.cur_end_offset = -1;
         }
@@ -346,9 +346,11 @@ impl FileRangeBuilder {
     fn process_one_bin(&mut self, bin_num: usize, total_bin_min: usize, index_data: &[u8]) {
         let this_file_number = (1024 * (bin_num >> 10)) as isize;
 
-        // On to a new file number? Then close out any current chunk.
+        // On to a new file number? Then close out any current chunk. We know
+        // that we're not in read-to-end mode, because otherwise we would have
+        // closed out the chunk and file while procesing the previous bin.
         if this_file_number != self.cur_file_number {
-            self.finish_chunk();
+            self.finish_chunk(false);
             self.cur_file_number = this_file_number;
         }
 
@@ -360,10 +362,30 @@ impl FileRangeBuilder {
 
         if bin_start == self.cur_end_offset {
             // We can coalesce these chunks!
-            self.cur_end_offset = bin_end;
+
+            if bin_end < bin_start {
+                // This must mean that the next chunk is in a new file. Therefore,
+                // the current chunk is done, and should be read with an open-ended
+                // range request.
+                self.finish_chunk(true);
+                self.cur_file_number = -1;
+            } else {
+                // Not done with this file.
+                self.cur_end_offset = bin_end;
+            }
+        } else if bin_end < bin_start {
+            // We cannot coalesce, so the previous chunk is done. But this bin
+            // must also be finished, because it must be handled in read-to-end
+            // mode. So:
+            self.finish_chunk(false);
+            self.cur_start_offset = bin_start;
+            self.finish_chunk(true);
+            self.cur_file_number = -1;
         } else {
-            // Same file, but different chunk.
-            self.finish_chunk();
+            // Same file, but different chunk, and we're not done with the file
+            // yet. We know that the previous chunk must not be in read-to-end
+            // mode.
+            self.finish_chunk(false);
             self.cur_start_offset = bin_start;
             self.cur_end_offset = bin_end;
         }
@@ -373,7 +395,7 @@ impl FileRangeBuilder {
         tranches: &[(usize, usize)],
         total_bin_min: usize,
         index_data: &[u8],
-    ) -> Vec<(isize, i32, i32)> {
+    ) -> Vec<(isize, i32, Option<i32>)> {
         let mut builder = FileRangeBuilder {
             chunks: Vec::new(),
             cur_file_number: -1,
@@ -387,7 +409,10 @@ impl FileRangeBuilder {
             }
         }
 
-        builder.finish_chunk();
+        // If there is any pending chunk, it must not be in read-to-end mode,
+        // because otherwise we would have detected that and closed it out.
+        builder.finish_chunk(false);
+
         builder.chunks
     }
 }
