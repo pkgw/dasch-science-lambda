@@ -43,6 +43,7 @@ pub struct Services {
     dc: aws_sdk_dynamodb::Client,
     s3c: aws_sdk_s3::Client,
     bin1: gscbin::GscBinning,
+    bin2: gscbin::GscBinning,
     bin64: gscbin::GscBinning,
 }
 
@@ -62,12 +63,14 @@ impl Services {
         let dc = aws_sdk_dynamodb::Client::new(&config);
         let s3c = aws_sdk_s3::Client::new(&config);
         let bin1 = gscbin::GscBinning::new1();
+        let bin2 = gscbin::GscBinning::new2();
         let bin64 = gscbin::GscBinning::new64();
 
         Ok(Services {
             dc,
             s3c,
             bin1,
+            bin2,
             bin64,
         })
     }
@@ -101,7 +104,7 @@ impl Services {
         } else if arn.ends_with("querycat") {
             Ok(querycat::handler(payload, &self.dc, &self.bin64).await?)
         } else if arn.ends_with("queryexps") {
-            Ok(queryexps::handler(payload, &self.dc, &self.s3c, &self.bin1).await?)
+            Ok(queryexps::handler(payload, &self.dc, &self.s3c, &self.bin1, &self.bin2).await?)
         } else {
             Err(format!("unhandled function: {}", arn).into())
         }

@@ -352,15 +352,15 @@ impl OutputRecord {
 }
 
 #[derive(BinarySerde, Debug, PartialEq)]
-struct LimitsPlateRecord {
+pub struct LimitsPlateRecord {
     rec_type: u32,
     rec_version: u32,
-    limiting_mag_local: f64,
+    pub limiting_mag_local: f64,
     geo_jd: f64,
-    series_id: u32,
-    plate_number: u32,
+    pub series_id: u32,
+    pub plate_number: u32,
     mosaic_number: u32,
-    solution_number: u32,
+    pub solution_number: u32,
     version: u32,
     _unused: u32,
 }

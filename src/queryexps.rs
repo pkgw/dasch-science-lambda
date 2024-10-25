@@ -13,6 +13,7 @@
 use anyhow::Result;
 use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_s3;
+use binary_serde::{BinarySerde, Endianness};
 use flate2::read::GzDecoder;
 use lambda_http::Error;
 use serde::Deserialize;
@@ -21,7 +22,10 @@ use std::collections::HashMap;
 use tokio::io::AsyncBufReadExt;
 
 use crate::{
-    mosaics::{load_b01_header, wcslib_solnum, PIXELS_PER_MM, PLATE_SCALE_BY_SERIES},
+    mosaics::{
+        load_b01_header, wcslib_solnum, PIXELS_PER_MM, PLATE_ID_BY_SERIES, PLATE_SCALE_BY_SERIES,
+    },
+    photdata::{get_limiting_records, LimitsPlateRecord},
     wcs::WcsCollection,
     BUCKET,
 };
@@ -88,14 +92,16 @@ pub async fn handler(
     req: Option<Value>,
     dc: &aws_sdk_dynamodb::Client,
     s3: &aws_sdk_s3::Client,
-    binning: &crate::gscbin::GscBinning,
+    bin1: &crate::gscbin::GscBinning,
+    bin2: &crate::gscbin::GscBinning,
 ) -> Result<Value, Error> {
     Ok(serde_json::to_value(
         implementation(
             serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
             dc,
             s3,
-            binning,
+            bin1,
+            bin2,
         )
         .await?,
     )?)
@@ -105,7 +111,8 @@ pub async fn implementation(
     request: Request,
     dc: &aws_sdk_dynamodb::Client,
     s3: &aws_sdk_s3::Client,
-    binning: &crate::gscbin::GscBinning,
+    bin1: &crate::gscbin::GscBinning,
+    bin2: &crate::gscbin::GscBinning,
 ) -> Result<Vec<String>, Error> {
     // Early validation, with NaN-sensitive logic
 
@@ -119,8 +126,8 @@ pub async fn implementation(
 
     // Get the approximate list of plates from the coarse binning.
 
-    let dec_bin = binning.get_dec_bin(request.dec_deg);
-    let total_bin = binning.get_total_bin(dec_bin, request.ra_deg);
+    let dec_bin = bin1.get_dec_bin(request.dec_deg);
+    let total_bin = bin1.get_total_bin(dec_bin, request.ra_deg);
     let s3_key = format!("dasch-dr7-coverage-bins/{}.csv", total_bin);
 
     let resp = s3.get_object().bucket(BUCKET).key(&s3_key).send().await?;
@@ -157,6 +164,42 @@ pub async fn implementation(
 
     eprintln!("Coarse bin query got {} plates", candidates.len());
 
+    // Load up the limiting-magnitude information.
+
+    let mut apass_lims = HashMap::new();
+
+    let apass_data =
+        get_limiting_records("apass", request.ra_deg, request.dec_deg, s3, bin2).await?;
+
+    for c in apass_data.chunks_exact(LimitsPlateRecord::SERIALIZED_SIZE) {
+        let rec = LimitsPlateRecord::binary_deserialize(c, Endianness::Little).unwrap();
+        apass_lims.insert(
+            (
+                rec.series_id as u8,
+                rec.plate_number as usize,
+                rec.solution_number as i8,
+            ),
+            rec.limiting_mag_local,
+        );
+    }
+
+    let mut atlas_lims = HashMap::new();
+
+    let atlas_data =
+        get_limiting_records("atlas", request.ra_deg, request.dec_deg, s3, bin2).await?;
+
+    for c in atlas_data.chunks_exact(LimitsPlateRecord::SERIALIZED_SIZE) {
+        let rec = LimitsPlateRecord::binary_deserialize(c, Endianness::Little).unwrap();
+        atlas_lims.insert(
+            (
+                rec.series_id as u8,
+                rec.plate_number as usize,
+                rec.solution_number as i8,
+            ),
+            rec.limiting_mag_local,
+        );
+    }
+
     // Get the detailed plate information. DynamoDB provides a batch_get_item
     // endpoint that manages to meet our needs, but it's annoying to use.
 
@@ -176,7 +219,9 @@ pub async fn implementation(
         scandate,\
         mosdate,\
         centerdist,\
-        edgedist"
+        edgedist,\
+        limMagApass,\
+        limMagAtlas"
         .to_owned()];
 
     let base_builder = aws_sdk_dynamodb::types::KeysAndAttributes::builder().projection_expression(
@@ -254,7 +299,14 @@ pub async fn implementation(
         for item in chunk.drain(..) {
             // "Impossible" to get a plate ID that's not in our candidates list:
             let solexps = candidates.get(&item.plate_id).unwrap();
-            process_one(&request, item, &solexps[..], &mut rows);
+            process_one(
+                &request,
+                item,
+                &solexps[..],
+                &apass_lims,
+                &atlas_lims,
+                &mut rows,
+            );
         }
 
         unprocessed_keys = resp.unprocessed_keys;
@@ -263,7 +315,14 @@ pub async fn implementation(
     Ok(rows)
 }
 
-fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mut Vec<String>) {
+fn process_one(
+    req: &Request,
+    plate: PlatesResult,
+    solexps: &[SolExp],
+    apass_lims: &HashMap<(u8, usize, i8), f64>,
+    atlas_lims: &HashMap<(u8, usize, i8), f64>,
+    rows: &mut Vec<String>,
+) {
     // First order of business is to prepare to construct a WCS object for every
     // solexp that we need to check. Even if we have some precise astrometric
     // solutions, we might *also* have catalog-only exposures for which we need
@@ -314,6 +373,8 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
     let pixel_scale = PLATE_SCALE_BY_SERIES
         .get(&plate.series)
         .map(|pl| pl / PIXELS_PER_MM / 3600.);
+
+    let series_id = *PLATE_ID_BY_SERIES.get(&plate.series).unwrap();
 
     // Finally we're ready to go
 
@@ -439,6 +500,20 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
             ),
         ) / (10. * PIXELS_PER_MM);
 
+        // Limiting-magnitude data
+
+        let apass_lim_text = apass_lims
+            .get(&(series_id, plate.plate_number, solexp.sol_num))
+            .copied()
+            .map(|d| format!("{:.3}", d))
+            .unwrap_or_default();
+
+        let atlas_lim_text = atlas_lims
+            .get(&(series_id, plate.plate_number, solexp.sol_num))
+            .copied()
+            .map(|d| format!("{:.3}", d))
+            .unwrap_or_default();
+
         let exptime_text = this_exp
             .and_then(|e| e.dur_min)
             .map(|d| format!("{:.2}", d))
@@ -456,7 +531,7 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
         let mosdate = mos.map(|m| m.creation_date.as_ref()).unwrap_or("");
 
         let row = format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1},{},{}",
             plate.series,
             plate.plate_number,
             scan_num,
@@ -473,6 +548,8 @@ fn process_one(req: &Request, plate: PlatesResult, solexps: &[SolExp], rows: &mu
             mosdate,
             center_dist,
             edge_dist,
+            apass_lim_text,
+            atlas_lim_text,
         );
         rows.push(row);
     }
