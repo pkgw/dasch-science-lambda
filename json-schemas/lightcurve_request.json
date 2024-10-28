@@ -9,6 +9,10 @@
       ],
       "description": "Identifier of the reference catalog to query"
     },
+    "gsc_bin_index": {
+      "type": "number",
+      "description": "The level-64 GSC bin in which the catalog source may be found"
+    },
     "ref_number": {
       "type": "number",
       "description": "The reference number of the source of interest within the catalog"

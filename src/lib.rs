@@ -22,6 +22,7 @@ use lambda_runtime::{tracing, Error};
 use serde_json::Value;
 
 mod cutout;
+mod dynamo_types;
 mod fitsfile;
 mod gscbin;
 mod lightcurve;
@@ -98,7 +99,7 @@ impl Services {
         if arn.ends_with("cutout") {
             Ok(cutout::handler(payload, &self.dc).await?)
         } else if arn.ends_with("lightcurve") {
-            Ok(lightcurve::handler(payload, &self.bin64).await?)
+            Ok(lightcurve::handler(payload, &self.dc, &self.s3c, &self.bin2).await?)
         } else if arn.ends_with("platephot") {
             Ok(platephot::handler(payload, &self.dc, &self.s3c, &self.bin64).await?)
         } else if arn.ends_with("querycat") {
