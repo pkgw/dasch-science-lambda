@@ -242,7 +242,6 @@ pub async fn implementation(
                 && rec.plate_number as usize == item.plate_number
                 && rec.solution_number as usize == request.solution_number
             {
-                eprintln!("match: {:?}", rec);
                 lines.push(rec.into_output(mos_data.mos_num).as_csv_row());
             }
         }
