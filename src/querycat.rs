@@ -1,52 +1,11 @@
-// TODO? we should probably move to serde-dynamo for strongly-typed handling
+//! Querying one of the reference catalogs by position to obtain source tables.
 
 use aws_sdk_dynamodb::types::AttributeValue;
 use lambda_http::Error;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::gscbin::D2R;
-use crate::refnums::refnum_to_text;
-
-const EXTERNAL_COLUMNS: &[&str] = &[
-    "ref_text",
-    "ref_number",
-    "gscBinIndex",
-    "raDeg",
-    "decDeg",
-    "draAsec",
-    "ddecAsec",
-    "posEpoch",
-    "pmRaMasyr",
-    "pmDecMasyr",
-    "uPMRaMasyr",
-    "uPMDecMasyr",
-    "stdmag",
-    "color",
-    "vFlag",
-    "magFlag",
-    "class",
-];
-
-const INTERNAL_COLUMNS: &[&str] = &[
-    "refText",
-    "refNumber",
-    "gscBinIndex",
-    "ra",
-    "dec",
-    "draAsec",
-    "ddecAsec",
-    "posEpoch",
-    "raPM",
-    "decPM",
-    "raSigmaPM",
-    "decSigmaPM",
-    "stdmag",
-    "color",
-    "vFlag",
-    "magFlag",
-    "class",
-];
+use crate::{dynamo_types::refcat_querycat::*, gscbin::D2R};
 
 /// Sync with `json-schemas/querycat_request.json`, which then needs to be
 /// synced into S3.
@@ -134,7 +93,7 @@ pub async fn implementation(
         }
     };
 
-    lines.push(EXTERNAL_COLUMNS.join(","));
+    lines.push(RefcatItem::csv_header());
 
     for ibin in bin0..=bin1 {
         lines = read_dec_bin(
@@ -170,7 +129,6 @@ async fn read_dec_bin(
 ) -> Result<Vec<String>, Error> {
     let tbin0 = binning.get_total_bin(dec_bin, box_ra_min);
     let tbin1 = binning.get_total_bin(dec_bin, box_ra_max);
-    let mut cells = Vec::new();
 
     let radius_deg = request.radius_arcsec / 3600.0;
 
@@ -189,7 +147,7 @@ async fn read_dec_bin(
         };
 
     for itbin in tbin0..=tbin1 {
-        let mut stream = dc
+        let mut resp = dc
             .query()
             .table_name(cat_table)
             .expression_attribute_names("#p", "gscBinIndex")
@@ -199,24 +157,8 @@ async fn read_dec_bin(
             .items()
             .send();
 
-        while let Some(item) = stream.next().await {
-            let item = item?;
-            cells.clear();
-
-            let ra_deg = item
-                .get("ra")
-                .and_then(|av| av.as_n().ok())
-                .and_then(|text| text.parse::<f64>().ok());
-
-            let dec_deg = item
-                .get("dec")
-                .and_then(|av| av.as_n().ok())
-                .and_then(|text| text.parse::<f64>().ok());
-
-            let (ra_deg, dec_deg) = match (ra_deg, dec_deg) {
-                (Some(r), Some(d)) => (r, d),
-                _ => continue,
-            };
+        while let Some(maybe_item) = resp.next().await {
+            let item: RefcatItem = serde_dynamo::from_item(maybe_item?)?;
 
             // Now we can evaluate if this source actually matches the
             // positional search. Note that we're actually evaluating a box, not
@@ -226,11 +168,11 @@ async fn read_dec_bin(
             // by the proper motion term.
 
             // If the limiting values go unphysical, no problem.
-            if dec_deg < request.dec_deg - radius_deg || dec_deg > request.dec_deg + radius_deg {
+            if item.dec < request.dec_deg - radius_deg || item.dec > request.dec_deg + radius_deg {
                 continue;
             }
 
-            let factor = (D2R * dec_deg).cos();
+            let factor = (D2R * item.dec).cos();
 
             // If the search box spans the RA = 0 = 360 line, this function will
             // be called twice to handle the wraparound, so we can also be
@@ -245,64 +187,12 @@ async fn read_dec_bin(
                 )
             };
 
-            if ra_deg < min_ra || ra_deg > max_ra {
+            if item.ra < min_ra || item.ra > max_ra {
                 continue;
             }
 
-            let mut delta_ra = request.ra_deg - ra_deg;
-
-            if delta_ra < -180. {
-                delta_ra += 360.;
-            } else if delta_ra > 180. {
-                delta_ra -= 360.;
-            }
-
-            let factor = (D2R * 0.5 * (dec_deg + request.dec_deg)).cos();
-
-            let sep = (
-                3600. * factor * delta_ra,
-                3600. * (request.dec_deg - dec_deg),
-            );
-
-            for col in INTERNAL_COLUMNS {
-                match *col {
-                    "refText" => {
-                        let val = item
-                            .get("refNumber")
-                            .and_then(|av| av.as_n().ok())
-                            .and_then(|text| text.parse::<u64>().ok())
-                            .map(|n| refnum_to_text(n))
-                            .unwrap_or_else(|| "UNDEFINED".to_owned());
-                        cells.push(val);
-                    }
-
-                    "draAsec" => {
-                        cells.push(format!("{}", sep.0));
-                    }
-
-                    "ddecAsec" => {
-                        cells.push(format!("{}", sep.1));
-                    }
-
-                    "posEpoch" => {
-                        cells.push("2000.000".to_string());
-                    }
-
-                    _ => match item.get(*col) {
-                        None => {
-                            cells.push("".to_string());
-                        }
-
-                        Some(val) => match val {
-                            AttributeValue::N(s) => cells.push(s.clone()),
-                            AttributeValue::S(s) => cells.push(s.clone()),
-                            _ => cells.push("".to_string()),
-                        },
-                    },
-                }
-            }
-
-            lines.push(cells.join(","));
+            // Looks good!
+            lines.push(item.as_csv_row(request.ra_deg, request.dec_deg));
         }
     }
 

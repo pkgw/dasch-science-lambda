@@ -17,6 +17,8 @@ event][proxy] protocol, which is what is used in the deployed DASCH systems.
 The main APIs are:
 
 - `src/cutout.rs` extracts cutout FITS images from the whole-plate mosaics
+- `src/lightcurve.rs` retrieves a lightcurve for a specific source
+- `src/platephot.rs` retrieves photometry for a subset of a single plate
 - `src/querycat.rs` queries one of the “reference catalogs” for sources
 - `src/queryexps.rs` queries for plate exposures overlapping a specified sky
   coordinate. (Plates may have multiple exposures at different sky positions, so
@@ -46,7 +48,7 @@ docker build -t dasch-science-lambda-builder:latest -f Dockerfile.build .
 Then, to start a server for testing a specific function, use:
 
 ```
-./go.sh <FUNCTION>  # <FUNCTION> is one of `cutout`, `querycat`, `queryexps`
+./go.sh <FUNCTION>  # <FUNCTION> is one of: cutout lightcurve platephot querycat queryexps
 ```
 
 Make requests to the server with commands of the following form:
@@ -67,11 +69,3 @@ is accomplished by triggering one of the apply pipelines of the [`aws_neo4j`]
 repository.
 
 [`aws_neo4j`]:  https://gitlab.com/HarvardRC/rse/cfa-dasch/infra/applications/aws_neo4j/
-
-
-## Unmanaged resources to close out
-
-- `dasch_dev_refcat_apass` DynamoDB table
-- `dasch-dr7/dev` ECR private registry
-- `dasch-dev-dr7-querycat` Lambda
-- `dasch-dev-dr7-querycat-role-gw8usqt5` lambda exec role

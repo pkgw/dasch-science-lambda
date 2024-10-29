@@ -19,7 +19,7 @@ struct GscBinIndex {
 
 impl GscBinning {
     pub fn new64() -> Self {
-        // bin size is 1/64 of a degree
+        // bin size is 1/64 of a degree (about 1 arcminute)
         // number of dec bins is 180 / bin_size
         // total bins is empirical
         Self::new_generic(0.015625, 11520, 168966386)
@@ -28,6 +28,11 @@ impl GscBinning {
     pub fn new1() -> Self {
         // dec bin size is 1 degree
         Self::new_generic(1.0, 180, 41164)
+    }
+
+    pub fn new2() -> Self {
+        // dec bin size is 0.5 degree
+        Self::new_generic(0.5, 360, 164828)
     }
 
     fn new_generic(bin_size: f64, dec_bins: usize, total_gsc_bins: usize) -> Self {
@@ -99,5 +104,11 @@ impl GscBinning {
         }
 
         bin_info.start_bin + delta_bin
+    }
+
+    /// Given a declination bin number, get the declination of the bin's center.
+    /// Return value is in degrees.
+    pub fn get_dec_bin_center(&self, dec_bin: usize) -> f64 {
+        (dec_bin as f64 + 0.5) * self.bin_size - 90.
     }
 }
