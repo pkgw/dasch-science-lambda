@@ -359,7 +359,7 @@ impl FileRangeBuilder {
         let bin_start = Offset::decode(&index_data[ofs..]);
         let bin_end = Offset::decode(&index_data[ofs + 4..]);
 
-        if bin_start == self.cur_end_offset {
+        if bin_start <= self.cur_end_offset {
             // We can coalesce these chunks!
 
             if bin_end < bin_start {
