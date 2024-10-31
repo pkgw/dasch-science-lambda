@@ -79,6 +79,14 @@ fn nanflag64(x: f64, flagval: f64) -> f64 {
     }
 }
 
+fn nanflag64_2(x: f64, flagval1: f64, flagval2: f64) -> f64 {
+    if x == flagval1 || x == flagval2 {
+        f64::NAN
+    } else {
+        x
+    }
+}
+
 fn nanflag32(x: f32, flagval: f32) -> f32 {
     if x == flagval {
         f32::NAN
@@ -127,16 +135,16 @@ impl MagRecord {
                 fwhm_pix: self.fwhm_pix,
                 fwhm_deg: self.fwhm_deg,
                 plate_center_dist_deg: self.plate_center_dist_deg,
-                blended_mag: nanflag64(self.blended_mag, 0.),
-                drad_rms2: self.drad_rms2,
+                blended_mag: nanflag64_2(self.blended_mag, 0., 99.),
+                drad_rms2: nanflag64(self.drad_rms2, 99.),
                 ra_cat_corrected: nanflag64(self.ra_cat_corrected, 999.),
                 dec_cat_corrected: nanflag64(self.dec_cat_corrected, 99.),
                 magcal_iso: self.magcal_iso,
-                magcal_iso_rms: self.magcal_iso_rms,
+                magcal_iso_rms: nanflag32(self.magcal_iso_rms, 99.),
                 magcal_local: self.magcal_local,
                 magcal_local_rms: nanflag32(self.magcal_local_rms, 99.),
                 magcal_local_error: self.magcal_local_error,
-                magcor_local: self.magcor_local,
+                magcor_local: nanflag32(self.magcor_local, 0.),
                 extinction: self.extinction,
                 magcal_magdep: self.magcal_magdep,
                 magcal_magdep_rms: nanflag32(self.magcal_magdep_rms, 99.),
