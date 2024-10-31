@@ -175,13 +175,11 @@ pub async fn implementation(
             let total_bin_0 = bin64.get_total_bin(dec_bin, *tranche_ra_min);
             let total_bin_1 = bin64.get_total_bin(dec_bin, *tranche_ra_max);
             tranches.push((total_bin_0, total_bin_1));
-            eprintln!("tranche: {total_bin_0}-{total_bin_1}");
         }
     }
 
     let total_bin_min = tranches[0].0;
     let total_bin_max = tranches[tranches.len() - 1].1;
-    eprintln!("total bin range: {total_bin_min}-{total_bin_max}");
 
     // Use the mega-index of all photdb files to figure out what we're going to
     // have to retrieve.
@@ -205,8 +203,6 @@ pub async fn implementation(
     let mut buf = index_data; // Might as well reuse this buffer
 
     for (file_number, start_offset, end_offset) in chunks {
-        eprintln!("req: {file_number} {start_offset} {end_offset:?}");
-
         buf.clear();
 
         let range = if let Some(e) = end_offset {
@@ -329,11 +325,6 @@ impl FileRangeBuilder {
             } else {
                 Some(self.cur_end_offset)
             };
-
-            eprintln!(
-                "file chunk: {} {} {:?}",
-                self.cur_file_number, self.cur_start_offset, end,
-            );
 
             self.chunks
                 .push((self.cur_file_number, self.cur_start_offset, end));
