@@ -314,13 +314,6 @@ pub async fn implementation(
     // this "blocking" wrapper thread, which in turn creates its own runtime and
     // does the S3 work.
 
-    eprintln!(
-        "to fetch: {} rows, {} cols, {} total pixels",
-        src_ny,
-        src_nx,
-        src_nx * src_ny
-    );
-
     let s3path = mos_data
         .s3_key_template
         .replace("{bin}", "01")

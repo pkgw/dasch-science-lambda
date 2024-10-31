@@ -175,13 +175,11 @@ pub async fn implementation(
             let total_bin_0 = bin64.get_total_bin(dec_bin, *tranche_ra_min);
             let total_bin_1 = bin64.get_total_bin(dec_bin, *tranche_ra_max);
             tranches.push((total_bin_0, total_bin_1));
-            eprintln!("tranche: {total_bin_0}-{total_bin_1}");
         }
     }
 
     let total_bin_min = tranches[0].0;
     let total_bin_max = tranches[tranches.len() - 1].1;
-    eprintln!("total bin range: {total_bin_min}-{total_bin_max}");
 
     // Use the mega-index of all photdb files to figure out what we're going to
     // have to retrieve.
@@ -205,8 +203,6 @@ pub async fn implementation(
     let mut buf = index_data; // Might as well reuse this buffer
 
     for (file_number, start_offset, end_offset) in chunks {
-        eprintln!("req: {file_number} {start_offset} {end_offset:?}");
-
         buf.clear();
 
         let range = if let Some(e) = end_offset {
@@ -242,7 +238,6 @@ pub async fn implementation(
                 && rec.plate_number as usize == item.plate_number
                 && rec.solution_number as usize == request.solution_number
             {
-                eprintln!("match: {:?}", rec);
                 lines.push(rec.into_output(mos_data.mos_num).as_csv_row());
             }
         }
@@ -331,11 +326,6 @@ impl FileRangeBuilder {
                 Some(self.cur_end_offset)
             };
 
-            eprintln!(
-                "file chunk: {} {} {:?}",
-                self.cur_file_number, self.cur_start_offset, end,
-            );
-
             self.chunks
                 .push((self.cur_file_number, self.cur_start_offset, end));
             self.cur_start_offset = -1;
@@ -360,7 +350,7 @@ impl FileRangeBuilder {
         let bin_start = Offset::decode(&index_data[ofs..]);
         let bin_end = Offset::decode(&index_data[ofs + 4..]);
 
-        if bin_start == self.cur_end_offset {
+        if bin_start <= self.cur_end_offset {
             // We can coalesce these chunks!
 
             if bin_end < bin_start {

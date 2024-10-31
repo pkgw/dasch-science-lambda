@@ -71,8 +71,43 @@ pub struct MagRecord {
     padding: [u8; 5],
 }
 
+fn nanflag64(x: f64, flagval: f64) -> f64 {
+    if x == flagval {
+        f64::NAN
+    } else {
+        x
+    }
+}
+
+fn nanflag64_2(x: f64, flagval1: f64, flagval2: f64) -> f64 {
+    if x == flagval1 || x == flagval2 {
+        f64::NAN
+    } else {
+        x
+    }
+}
+
+fn nanflag32(x: f32, flagval: f32) -> f32 {
+    if x == flagval {
+        f32::NAN
+    } else {
+        x
+    }
+}
+
+fn negflag32(x: f32) -> f32 {
+    if x <= 0. {
+        f32::NAN
+    } else {
+        x
+    }
+}
+
 impl MagRecord {
     /// Consume this magfile record and convert it into an output record.
+    ///
+    /// Here is where we also convert flag float values to NaNs, to the extent
+    /// possible.
     pub fn into_output(self, mosaic_number: i8) -> OutputRecord {
         OutputRecord {
             date_jd: self.date_jd,
@@ -100,22 +135,22 @@ impl MagRecord {
                 fwhm_pix: self.fwhm_pix,
                 fwhm_deg: self.fwhm_deg,
                 plate_center_dist_deg: self.plate_center_dist_deg,
-                blended_mag: self.blended_mag,
-                drad_rms2: self.drad_rms2,
-                ra_cat_corrected: self.ra_cat_corrected,
-                dec_cat_corrected: self.dec_cat_corrected,
+                blended_mag: nanflag64_2(self.blended_mag, 0., 99.),
+                drad_rms2: nanflag64(self.drad_rms2, 99.),
+                ra_cat_corrected: nanflag64(self.ra_cat_corrected, 999.),
+                dec_cat_corrected: nanflag64(self.dec_cat_corrected, 99.),
                 magcal_iso: self.magcal_iso,
-                magcal_iso_rms: self.magcal_iso_rms,
+                magcal_iso_rms: nanflag32(self.magcal_iso_rms, 99.),
                 magcal_local: self.magcal_local,
-                magcal_local_rms: self.magcal_local_rms,
+                magcal_local_rms: nanflag32(self.magcal_local_rms, 99.),
                 magcal_local_error: self.magcal_local_error,
-                magcor_local: self.magcor_local,
+                magcor_local: nanflag32(self.magcor_local, 0.),
                 extinction: self.extinction,
                 magcal_magdep: self.magcal_magdep,
-                magcal_magdep_rms: self.magcal_magdep_rms,
-                pm_ra_masyr: self.pm_ra_masyr,
-                pm_dec_masyr: self.pm_dec_masyr,
-                time_accuracy_days: self.time_accuracy_days,
+                magcal_magdep_rms: nanflag32(self.magcal_magdep_rms, 99.),
+                pm_ra_masyr: nanflag32(self.pm_ra_masyr, 999999.),
+                pm_dec_masyr: nanflag32(self.pm_dec_masyr, 999999.),
+                time_accuracy_days: negflag32(self.time_accuracy_days),
                 gsc_bin_index: self.gsc_bin_index,
                 sextractor_number: self.sextractor_number,
                 version_id: self.version_id,
@@ -227,6 +262,14 @@ fn nanf32(x: f32) -> String {
     }
 }
 
+fn flag<T: PartialEq + ToString>(x: T, flagval: T) -> String {
+    if x == flagval {
+        String::default()
+    } else {
+        x.to_string()
+    }
+}
+
 impl OutputRecord {
     /// Get a CSV header row appropriate for CSV-format display of output
     /// records.
@@ -313,7 +356,7 @@ impl OutputRecord {
         cells.push(nanf32(self.limiting_mag_local));
 
         if let Some(d) = self.det.as_ref() {
-            cells.push(d.ref_number.to_string());
+            cells.push(flag(d.ref_number, 0));
             cells.push(nanf64(d.x_image));
             cells.push(nanf64(d.y_image));
             cells.push(nanf64(d.mag_iso));
