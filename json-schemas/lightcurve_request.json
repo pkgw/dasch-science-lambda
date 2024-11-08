@@ -22,6 +22,7 @@
   "type": "object",
   "required": [
     "refcat",
+    "gsc_bin_index",
     "ref_number"
   ],
   "description": "Retrieve the lightcurve of a specific source"
