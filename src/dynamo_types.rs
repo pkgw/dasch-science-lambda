@@ -19,11 +19,28 @@ use serde::Deserialize;
 pub mod plates_queryexps {
     use super::*;
 
+    pub const PROJECTION_EXPRESSION: &str = "\
+        astrometry.b01HeaderGz,\
+        astrometry.exposures,\
+        astrometry.nSolutions,\
+        astrometry.rotationDelta,\
+        mosaic.b01Height,\
+        mosaic.b01Width,\
+        mosaic.creationDate,\
+        mosaic.mosNum,\
+        mosaic.scanNum,\
+        photometry.medianColortermApass,\
+        photometry.medianColortermAtlas,\
+        plateId,\
+        plateNumber,\
+        series";
+
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct PlatesResult {
         pub astrometry: Option<PlatesAstrometryResult>,
         pub mosaic: Option<PlatesMosaicResult>,
+        pub photometry: Option<PlatesPhotometryData>,
         pub plate_id: String,
         pub plate_number: usize,
         pub series: String,
@@ -61,6 +78,13 @@ pub mod plates_queryexps {
         pub creation_date: String,
         pub mos_num: i8,
         pub scan_num: i8,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlatesPhotometryData {
+        pub median_colorterm_apass: Option<f32>,
+        pub median_colorterm_atlas: Option<f32>,
     }
 }
 

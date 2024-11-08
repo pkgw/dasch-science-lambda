@@ -178,23 +178,13 @@ pub async fn implementation(
         centerdist,\
         edgedist,\
         limMagApass,\
-        limMagAtlas"
+        limMagAtlas,\
+        medianColortermApass,\
+        medianColortermAtlas"
         .to_owned()];
 
-    let base_builder = aws_sdk_dynamodb::types::KeysAndAttributes::builder().projection_expression(
-        "astrometry.b01HeaderGz,\
-        astrometry.exposures,\
-        astrometry.nSolutions,\
-        astrometry.rotationDelta,\
-        mosaic.b01Height,\
-        mosaic.b01Width,\
-        mosaic.creationDate,\
-        mosaic.mosNum,\
-        mosaic.scanNum,\
-        plateId,\
-        plateNumber,\
-        series",
-    );
+    let base_builder = aws_sdk_dynamodb::types::KeysAndAttributes::builder()
+        .projection_expression(PROJECTION_EXPRESSION);
 
     let table_name = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
     let mut unprocessed_keys: Option<HashMap<String, aws_sdk_dynamodb::types::KeysAndAttributes>> =
@@ -332,6 +322,22 @@ fn process_one(
         .map(|pl| pl / PIXELS_PER_MM / 3600.);
 
     let series_id = *PLATE_ID_BY_SERIES.get(&plate.series).unwrap();
+
+    // Colorterm info is per-plate, so we can compute it up here.
+
+    let mct_apass_text = plate
+        .photometry
+        .as_ref()
+        .and_then(|p| p.median_colorterm_apass)
+        .map(|x| format!("{x:.3}"))
+        .unwrap_or_default();
+
+    let mct_atlas_text = plate
+        .photometry
+        .as_ref()
+        .and_then(|p| p.median_colorterm_atlas)
+        .map(|x| format!("{x:.3}"))
+        .unwrap_or_default();
 
     // Finally we're ready to go
 
@@ -488,7 +494,7 @@ fn process_one(
         let mosdate = mos.map(|m| m.creation_date.as_ref()).unwrap_or("");
 
         let row = format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1},{},{},{},{}",
             plate.series,
             plate.plate_number,
             scan_num,
@@ -507,6 +513,8 @@ fn process_one(
             edge_dist,
             apass_lim_text,
             atlas_lim_text,
+            mct_apass_text,
+            mct_atlas_text,
         );
         rows.push(row);
     }
