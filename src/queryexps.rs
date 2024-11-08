@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use tokio::io::AsyncBufReadExt;
 
 use crate::{
+    dynamo_types::plates_queryexps::*,
     mosaics::{
         load_b01_header, wcslib_solnum, PIXELS_PER_MM, PLATE_ID_BY_SERIES, PLATE_SCALE_BY_SERIES,
     },
@@ -36,50 +37,6 @@ use crate::{
 pub struct Request {
     pub ra_deg: f64,
     pub dec_deg: f64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlatesResult {
-    astrometry: Option<PlatesAstrometryResult>,
-    mosaic: Option<PlatesMosaicResult>,
-    plate_id: String,
-    plate_number: usize,
-    series: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlatesAstrometryResult {
-    #[serde(default, with = "serde_bytes")]
-    // should be Option<>, but not sure how to nest the custom deserializer
-    b01_header_gz: Vec<u8>,
-    n_solutions: Option<usize>,
-    rotation_delta: Option<isize>,
-    exposures: Vec<Option<PlatesExposureResult>>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlatesExposureResult {
-    center_source: Option<String>,
-    //date_acc_days: Option<f64>,
-    //date_source: Option<String>,
-    dec_deg: Option<f64>,
-    dur_min: Option<f64>,
-    midpoint_date: Option<String>,
-    number: i8,
-    ra_deg: Option<f64>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlatesMosaicResult {
-    b01_height: usize,
-    b01_width: usize,
-    creation_date: String,
-    mos_num: i8,
-    scan_num: i8,
 }
 
 #[derive(Debug)]
