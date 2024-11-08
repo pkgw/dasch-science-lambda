@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use tokio::io::AsyncBufReadExt;
 
 use crate::{
+    dynamo_types::plates_queryexps::*,
     mosaics::{
         load_b01_header, wcslib_solnum, PIXELS_PER_MM, PLATE_ID_BY_SERIES, PLATE_SCALE_BY_SERIES,
     },
@@ -36,50 +37,6 @@ use crate::{
 pub struct Request {
     pub ra_deg: f64,
     pub dec_deg: f64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlatesResult {
-    astrometry: Option<PlatesAstrometryResult>,
-    mosaic: Option<PlatesMosaicResult>,
-    plate_id: String,
-    plate_number: usize,
-    series: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlatesAstrometryResult {
-    #[serde(default, with = "serde_bytes")]
-    // should be Option<>, but not sure how to nest the custom deserializer
-    b01_header_gz: Vec<u8>,
-    n_solutions: Option<usize>,
-    rotation_delta: Option<isize>,
-    exposures: Vec<Option<PlatesExposureResult>>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlatesExposureResult {
-    center_source: Option<String>,
-    //date_acc_days: Option<f64>,
-    //date_source: Option<String>,
-    dec_deg: Option<f64>,
-    dur_min: Option<f64>,
-    midpoint_date: Option<String>,
-    number: i8,
-    ra_deg: Option<f64>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlatesMosaicResult {
-    b01_height: usize,
-    b01_width: usize,
-    creation_date: String,
-    mos_num: i8,
-    scan_num: i8,
 }
 
 #[derive(Debug)]
@@ -221,23 +178,13 @@ pub async fn implementation(
         centerdist,\
         edgedist,\
         limMagApass,\
-        limMagAtlas"
+        limMagAtlas,\
+        medianColortermApass,\
+        medianColortermAtlas"
         .to_owned()];
 
-    let base_builder = aws_sdk_dynamodb::types::KeysAndAttributes::builder().projection_expression(
-        "astrometry.b01HeaderGz,\
-        astrometry.exposures,\
-        astrometry.nSolutions,\
-        astrometry.rotationDelta,\
-        mosaic.b01Height,\
-        mosaic.b01Width,\
-        mosaic.creationDate,\
-        mosaic.mosNum,\
-        mosaic.scanNum,\
-        plateId,\
-        plateNumber,\
-        series",
-    );
+    let base_builder = aws_sdk_dynamodb::types::KeysAndAttributes::builder()
+        .projection_expression(PROJECTION_EXPRESSION);
 
     let table_name = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
     let mut unprocessed_keys: Option<HashMap<String, aws_sdk_dynamodb::types::KeysAndAttributes>> =
@@ -375,6 +322,22 @@ fn process_one(
         .map(|pl| pl / PIXELS_PER_MM / 3600.);
 
     let series_id = *PLATE_ID_BY_SERIES.get(&plate.series).unwrap();
+
+    // Colorterm info is per-plate, so we can compute it up here.
+
+    let mct_apass_text = plate
+        .photometry
+        .as_ref()
+        .and_then(|p| p.median_colorterm_apass)
+        .map(|x| format!("{x:.3}"))
+        .unwrap_or_default();
+
+    let mct_atlas_text = plate
+        .photometry
+        .as_ref()
+        .and_then(|p| p.median_colorterm_atlas)
+        .map(|x| format!("{x:.3}"))
+        .unwrap_or_default();
 
     // Finally we're ready to go
 
@@ -531,7 +494,7 @@ fn process_one(
         let mosdate = mos.map(|m| m.creation_date.as_ref()).unwrap_or("");
 
         let row = format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1},{},{},{},{}",
             plate.series,
             plate.plate_number,
             scan_num,
@@ -550,6 +513,8 @@ fn process_one(
             edge_dist,
             apass_lim_text,
             atlas_lim_text,
+            mct_apass_text,
+            mct_atlas_text,
         );
         rows.push(row);
     }

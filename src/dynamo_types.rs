@@ -15,6 +15,79 @@
 
 use serde::Deserialize;
 
+/// Types for querying the plates table for the `queryexps` endpoint.
+pub mod plates_queryexps {
+    use super::*;
+
+    pub const PROJECTION_EXPRESSION: &str = "\
+        astrometry.b01HeaderGz,\
+        astrometry.exposures,\
+        astrometry.nSolutions,\
+        astrometry.rotationDelta,\
+        mosaic.b01Height,\
+        mosaic.b01Width,\
+        mosaic.creationDate,\
+        mosaic.mosNum,\
+        mosaic.scanNum,\
+        photometry.medianColortermApass,\
+        photometry.medianColortermAtlas,\
+        plateId,\
+        plateNumber,\
+        series";
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlatesResult {
+        pub astrometry: Option<PlatesAstrometryResult>,
+        pub mosaic: Option<PlatesMosaicResult>,
+        pub photometry: Option<PlatesPhotometryData>,
+        pub plate_id: String,
+        pub plate_number: usize,
+        pub series: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlatesAstrometryResult {
+        #[serde(default, with = "serde_bytes")]
+        // should be Option<>, but not sure how to nest the custom deserializer
+        pub b01_header_gz: Vec<u8>,
+        pub n_solutions: Option<usize>,
+        pub rotation_delta: Option<isize>,
+        pub exposures: Vec<Option<PlatesExposureResult>>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlatesExposureResult {
+        pub center_source: Option<String>,
+        //date_acc_days: Option<f64>,
+        //date_source: Option<String>,
+        pub dec_deg: Option<f64>,
+        pub dur_min: Option<f64>,
+        pub midpoint_date: Option<String>,
+        pub number: i8,
+        pub ra_deg: Option<f64>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlatesMosaicResult {
+        pub b01_height: usize,
+        pub b01_width: usize,
+        pub creation_date: String,
+        pub mos_num: i8,
+        pub scan_num: i8,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlatesPhotometryData {
+        pub median_colorterm_apass: Option<f32>,
+        pub median_colorterm_atlas: Option<f32>,
+    }
+}
+
 /// Types for querying the reference catalog tables for the purposes of
 /// lightcurve generation.
 pub mod refcat_lightcurve {
