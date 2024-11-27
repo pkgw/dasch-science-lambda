@@ -29,6 +29,7 @@ mod lightcurve;
 mod mosaics;
 mod photdata;
 mod platephot;
+mod presign;
 mod querycat;
 mod queryexps;
 mod refnums;
@@ -110,6 +111,8 @@ impl Services {
             Ok(lightcurve::handler(payload, &self.dc, &self.s3c, &self.bin2).await?)
         } else if arn.ends_with("platephot") {
             Ok(platephot::handler(payload, &self.dc, &self.s3c, &self.bin64).await?)
+        } else if arn.ends_with("presign_photcal_asdf") {
+            Ok(presign::handle_photcal_asdf(payload, &self.s3c).await?)
         } else if arn.ends_with("querycat") {
             Ok(querycat::handler(payload, &self.dc, &self.bin64).await?)
         } else if arn.ends_with("queryexps") {
