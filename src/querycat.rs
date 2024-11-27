@@ -5,7 +5,7 @@ use lambda_http::Error;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{dynamo_types::refcat_querycat::*, gscbin::D2R};
+use crate::{dynamo_types::refcat_querycat::*, gscbin::D2R, make_refcat_table_name};
 
 /// Sync with `json-schemas/querycat_request.json`, which then needs to be
 /// synced into S3.
@@ -61,7 +61,7 @@ pub async fn implementation(
         return Err("illegal radius_arcsec parameter".into());
     }
 
-    let cat_table = format!("dasch-{}-dr7-refcat-{}", super::ENVIRONMENT, request.refcat);
+    let cat_table = make_refcat_table_name(&request.refcat);
     let radius_deg = request.radius_arcsec / 3600.0;
     let min_dec = f64::max(request.dec_deg - radius_deg, -90.0);
     let max_dec = f64::min(request.dec_deg + radius_deg, 90.0);

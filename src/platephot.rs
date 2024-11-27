@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::{
     gscbin::{GscBinning, D2R},
     photdata::{MagRecord, OutputRecord},
-    BUCKET,
+    BUCKET, PLATES_TABLE_NAME,
 };
 
 const HALFSIZE_DEG: f64 = 10. / 60.; // 10 arcmin
@@ -93,11 +93,9 @@ pub async fn implementation(
     // plate series ID number as well, rather than having our hardcoded lookup
     // table.
 
-    let plates_table = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
-
     let result = dc
         .get_item()
-        .table_name(plates_table)
+        .table_name(PLATES_TABLE_NAME)
         .key("plateId", AttributeValue::S(request.plate_id.clone()))
         .projection_expression(
             "astrometry.nSolutions,\

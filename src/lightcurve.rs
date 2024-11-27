@@ -9,6 +9,7 @@ use std::collections::{hash_map::Entry, HashMap};
 
 use crate::{
     dynamo_types::refcat_lightcurve::*,
+    make_refcat_table_name,
     photdata::{get_limiting_records, LimitsPlateRecord, MagRecord, OutputRecord},
     BUCKET,
 };
@@ -56,7 +57,7 @@ pub async fn implementation(
 
     // Fetch information about the source from the refcat
 
-    let refcat_table = format!("dasch-{}-dr7-refcat-{}", super::ENVIRONMENT, request.refcat);
+    let refcat_table = make_refcat_table_name(&request.refcat);
 
     let result = dc
         .get_item()

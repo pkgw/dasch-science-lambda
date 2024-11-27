@@ -23,7 +23,7 @@ use serde_json::Value;
 use crate::{
     fitsfile::FitsFile,
     mosaics::{load_b01_header, wcslib_solnum},
-    BUCKET,
+    BUCKET, PLATES_TABLE_NAME,
 };
 
 /// Sync with `json-schemas/cutout_request.json`, which then needs to be
@@ -114,11 +114,9 @@ pub async fn implementation(
 
     // Get the information we need about this plate and validate the basic request.
 
-    let plates_table = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
-
     let result = dc
         .get_item()
-        .table_name(plates_table)
+        .table_name(PLATES_TABLE_NAME)
         .key("plateId", AttributeValue::S(request.plate_id.clone()))
         .projection_expression(
             "astrometry.b01HeaderGz,\
