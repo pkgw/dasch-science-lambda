@@ -29,7 +29,7 @@ use crate::{
 /// Sync with `json-schemas/cutout_request.json`, which then needs to be
 /// synced into S3.
 #[derive(Deserialize)]
-pub struct Request {
+struct Request {
     plate_id: String,
     solution_number: usize,
     center_ra_deg: f64,
@@ -98,10 +98,7 @@ impl TryFrom<isize> for DeltaRotation {
     }
 }
 
-pub async fn implementation(
-    request: Request,
-    dc: &aws_sdk_dynamodb::Client,
-) -> Result<String, Error> {
+async fn implementation(request: Request, dc: &aws_sdk_dynamodb::Client) -> Result<String, Error> {
     // Early validation, with NaN-sensitive logic
 
     if !(request.center_ra_deg >= 0. && request.center_ra_deg <= 360.) {

@@ -34,7 +34,7 @@ use crate::{
 /// Sync with `json-schemas/queryexps_request.json`, which then needs to be
 /// synced into S3.
 #[derive(Deserialize)]
-pub struct Request {
+struct Request {
     pub ra_deg: f64,
     pub dec_deg: f64,
 }
@@ -64,7 +64,7 @@ pub async fn handler(
     )?)
 }
 
-pub async fn implementation(
+async fn implementation(
     request: Request,
     dc: &aws_sdk_dynamodb::Client,
     s3: &aws_sdk_s3::Client,

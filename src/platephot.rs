@@ -38,7 +38,7 @@ struct PlatesMosaicResult {
 /// Sync with `json-schemas/platephot_request.json`, which then needs to be
 /// synced into S3.
 #[derive(Deserialize)]
-pub struct Request {
+struct Request {
     refcat: String,
     plate_id: String,
     solution_number: usize,
@@ -63,7 +63,7 @@ pub async fn handler(
     )?)
 }
 
-pub async fn implementation(
+async fn implementation(
     request: Request,
     dc: &aws_sdk_dynamodb::Client,
     s3: &aws_sdk_s3::Client,

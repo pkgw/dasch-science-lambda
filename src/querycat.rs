@@ -10,7 +10,7 @@ use crate::{dynamo_types::refcat_querycat::*, gscbin::D2R, make_refcat_table_nam
 /// Sync with `json-schemas/querycat_request.json`, which then needs to be
 /// synced into S3.
 #[derive(Deserialize)]
-pub struct Request {
+struct Request {
     refcat: String,
     ra_deg: f64,
     dec_deg: f64,
@@ -32,7 +32,7 @@ pub async fn handler(
     )?)
 }
 
-pub async fn implementation(
+async fn implementation(
     request: Request,
     dc: &aws_sdk_dynamodb::Client,
     binning: &crate::gscbin::GscBinning,
