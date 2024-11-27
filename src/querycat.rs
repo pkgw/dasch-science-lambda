@@ -5,7 +5,10 @@ use lambda_http::Error;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{dynamo_types::refcat_querycat::*, gscbin::D2R, make_refcat_table_name};
+use crate::{
+    dynamo_types::refcat_querycat::*, gscbin::D2R, http_types::Response, make_refcat_table_name,
+    simple_response,
+};
 
 /// Sync with `json-schemas/querycat_request.json`, which then needs to be
 /// synced into S3.
@@ -21,22 +24,20 @@ pub async fn handler(
     req: Option<Value>,
     dc: &aws_sdk_dynamodb::Client,
     binning: &crate::gscbin::GscBinning,
-) -> Result<Value, Error> {
-    Ok(serde_json::to_value(
-        implementation(
-            serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
-            dc,
-            binning,
-        )
-        .await?,
-    )?)
+) -> Result<Response, Error> {
+    Ok(implementation(
+        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        dc,
+        binning,
+    )
+    .await?)
 }
 
 async fn implementation(
     request: Request,
     dc: &aws_sdk_dynamodb::Client,
     binning: &crate::gscbin::GscBinning,
-) -> Result<Vec<String>, Error> {
+) -> Result<Response, Error> {
     let mut lines = Vec::new();
 
     // Validation
@@ -114,7 +115,7 @@ async fn implementation(
         }
     }
 
-    Ok(lines)
+    simple_response(&lines)
 }
 
 async fn read_dec_bin(

@@ -22,8 +22,9 @@ use serde_json::Value;
 
 use crate::{
     fitsfile::FitsFile,
+    http_types::Response,
     mosaics::{load_b01_header, wcslib_solnum},
-    BUCKET, PLATES_TABLE_NAME,
+    simple_response, BUCKET, PLATES_TABLE_NAME,
 };
 
 /// Sync with `json-schemas/cutout_request.json`, which then needs to be
@@ -65,14 +66,12 @@ const OUTPUT_IMAGE_FULLSIZE: usize = 2 * OUTPUT_IMAGE_HALFSIZE + 1;
 const OUTPUT_IMAGE_NPIX: usize = OUTPUT_IMAGE_FULLSIZE * OUTPUT_IMAGE_FULLSIZE;
 const OUTPUT_IMAGE_PIXSCALE: f64 = 0.0004; // deg/pix
 
-pub async fn handler(req: Option<Value>, dc: &aws_sdk_dynamodb::Client) -> Result<Value, Error> {
-    Ok(serde_json::to_value(
-        implementation(
-            serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
-            dc,
-        )
-        .await?,
-    )?)
+pub async fn handler(req: Option<Value>, dc: &aws_sdk_dynamodb::Client) -> Result<Response, Error> {
+    Ok(implementation(
+        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        dc,
+    )
+    .await?)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,7 +97,10 @@ impl TryFrom<isize> for DeltaRotation {
     }
 }
 
-async fn implementation(request: Request, dc: &aws_sdk_dynamodb::Client) -> Result<String, Error> {
+async fn implementation(
+    request: Request,
+    dc: &aws_sdk_dynamodb::Client,
+) -> Result<Response, Error> {
     // Early validation, with NaN-sensitive logic
 
     if !(request.center_ra_deg >= 0. && request.center_ra_deg <= 360.) {
@@ -399,5 +401,5 @@ async fn implementation(request: Request, dc: &aws_sdk_dynamodb::Client) -> Resu
     }
 
     let dest_gz_b64 = String::from_utf8(dest_gz_b64)?;
-    Ok(dest_gz_b64)
+    simple_response(&dest_gz_b64)
 }

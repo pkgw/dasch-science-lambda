@@ -9,12 +9,14 @@ members = ["crates/fitswcs-sys", "."]
 [dependencies]
 anyhow = "^1"
 aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
+aws_lambda_events = { version = "0.15", default-features = false }
 aws-sdk-dynamodb = "1.47"
 aws-sdk-s3 = "1.52"
 base64 = "0.22"
 binary_serde = "1.0"
 fitswcs-sys = { path = "crates/fitswcs-sys", version = "0.1.0" }
 flate2 = { version = "^1", features = ["zlib"], default-features = false }
+http = "1.1"
 lambda_http = "0.13"
 lambda_runtime = "0.13"
 libc = "0.2"

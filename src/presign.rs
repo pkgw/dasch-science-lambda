@@ -8,7 +8,9 @@
 
 use lambda_http::Error;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
+
+use crate::http_types::{Body, Response, ResponseBuilder, StatusCode};
 
 /// Sync with `json-schemas/presign_photcal_asdf_request.json`, which then needs to be
 /// synced into S3.
@@ -17,16 +19,10 @@ struct PhotcalAsdfRequest {
     hexid: String,
 }
 
-fn location_response<D: std::fmt::Display>(value: D) -> Value {
-    json!({
-        "location": value.to_string(),
-    })
-}
-
 pub async fn handle_photcal_asdf(
     req: Option<Value>,
     s3: &aws_sdk_s3::Client,
-) -> Result<Value, Error> {
+) -> Result<Response, Error> {
     Ok(implement_photcal_asdf(
         serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
         s3,
@@ -37,9 +33,13 @@ pub async fn handle_photcal_asdf(
 async fn implement_photcal_asdf(
     request: PhotcalAsdfRequest,
     _s3: &aws_sdk_s3::Client,
-) -> Result<Value, Error> {
-    Ok(location_response(format!(
-        "https://google.com/?q={}",
-        request.hexid
-    )))
+) -> Result<Response, Error> {
+    let builder = ResponseBuilder::new()
+        .header(
+            "Location",
+            format!("https://google.com/?q={}", request.hexid),
+        )
+        .status(StatusCode::TEMPORARY_REDIRECT);
+
+    Ok(builder.body(Body::Empty)?)
 }

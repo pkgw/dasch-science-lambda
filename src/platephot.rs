@@ -8,8 +8,9 @@ use serde_json::Value;
 
 use crate::{
     gscbin::{GscBinning, D2R},
+    http_types::Response,
     photdata::{MagRecord, OutputRecord},
-    BUCKET, PLATES_TABLE_NAME,
+    simple_response, BUCKET, PLATES_TABLE_NAME,
 };
 
 const HALFSIZE_DEG: f64 = 10. / 60.; // 10 arcmin
@@ -51,16 +52,14 @@ pub async fn handler(
     dc: &aws_sdk_dynamodb::Client,
     s3: &aws_sdk_s3::Client,
     bin64: &GscBinning,
-) -> Result<Value, Error> {
-    Ok(serde_json::to_value(
-        implementation(
-            serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
-            dc,
-            s3,
-            bin64,
-        )
-        .await?,
-    )?)
+) -> Result<Response, Error> {
+    Ok(implementation(
+        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        dc,
+        s3,
+        bin64,
+    )
+    .await?)
 }
 
 async fn implementation(
@@ -68,7 +67,7 @@ async fn implementation(
     dc: &aws_sdk_dynamodb::Client,
     s3: &aws_sdk_s3::Client,
     bin64: &GscBinning,
-) -> Result<Vec<String>, Error> {
+) -> Result<Response, Error> {
     // Early validation, with NaN-sensitive logic
 
     match request.refcat.as_ref() {
@@ -241,7 +240,7 @@ async fn implementation(
         }
     }
 
-    Ok(lines)
+    simple_response(&lines)
 }
 
 /// Retrieve file offsets from the "mega-index" of where data are sharded among
