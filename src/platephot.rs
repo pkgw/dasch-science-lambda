@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::{
     gscbin::{GscBinning, D2R},
     photdata::{MagRecord, OutputRecord},
-    BUCKET,
+    BUCKET, PLATES_TABLE_NAME,
 };
 
 const HALFSIZE_DEG: f64 = 10. / 60.; // 10 arcmin
@@ -38,7 +38,7 @@ struct PlatesMosaicResult {
 /// Sync with `json-schemas/platephot_request.json`, which then needs to be
 /// synced into S3.
 #[derive(Deserialize)]
-pub struct Request {
+struct Request {
     refcat: String,
     plate_id: String,
     solution_number: usize,
@@ -63,7 +63,7 @@ pub async fn handler(
     )?)
 }
 
-pub async fn implementation(
+async fn implementation(
     request: Request,
     dc: &aws_sdk_dynamodb::Client,
     s3: &aws_sdk_s3::Client,
@@ -93,11 +93,9 @@ pub async fn implementation(
     // plate series ID number as well, rather than having our hardcoded lookup
     // table.
 
-    let plates_table = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
-
     let result = dc
         .get_item()
-        .table_name(plates_table)
+        .table_name(PLATES_TABLE_NAME)
         .key("plateId", AttributeValue::S(request.plate_id.clone()))
         .projection_expression(
             "astrometry.nSolutions,\

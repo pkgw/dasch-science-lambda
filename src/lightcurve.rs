@@ -9,6 +9,7 @@ use std::collections::{hash_map::Entry, HashMap};
 
 use crate::{
     dynamo_types::refcat_lightcurve::*,
+    make_refcat_table_name,
     photdata::{get_limiting_records, LimitsPlateRecord, MagRecord, OutputRecord},
     BUCKET,
 };
@@ -16,7 +17,7 @@ use crate::{
 /// Sync with `json-schemas/lightcurve_request.json`, which then needs to be
 /// synced into S3.
 #[derive(Deserialize)]
-pub struct Request {
+struct Request {
     refcat: String,
     gsc_bin_index: u32,
     ref_number: u64,
@@ -39,7 +40,7 @@ pub async fn handler(
     )?)
 }
 
-pub async fn implementation(
+async fn implementation(
     request: Request,
     dc: &aws_sdk_dynamodb::Client,
     s3c: &aws_sdk_s3::Client,
@@ -56,7 +57,7 @@ pub async fn implementation(
 
     // Fetch information about the source from the refcat
 
-    let refcat_table = format!("dasch-{}-dr7-refcat-{}", super::ENVIRONMENT, request.refcat);
+    let refcat_table = make_refcat_table_name(&request.refcat);
 
     let result = dc
         .get_item()

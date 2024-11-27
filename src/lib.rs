@@ -5,7 +5,7 @@
 //! executables: `dasch-science-lambda-oneshot`, `dasch-science-lambda-bare` and
 //! `dasch-science-lambda-proxyevent`. The first two are useful for local
 //! testing. while the last has support for the more complex AWS API Gateway
-//! "proxy event" framework that we for our actual cloud deployment.
+//! "proxy event" framework that we use for our actual cloud deployment.
 //!
 //! It was hard to find good examples of how a Rust Lambda implementation should
 //! look. Here's one good one:
@@ -29,6 +29,7 @@ mod lightcurve;
 mod mosaics;
 mod photdata;
 mod platephot;
+mod presign;
 mod querycat;
 mod queryexps;
 mod refnums;
@@ -36,9 +37,17 @@ mod s3buffer;
 mod s3fits;
 mod wcs;
 
-pub const ENVIRONMENT: &str = "dev";
+/// I included a "dev" in this name even though in retrospect I wish I hadn't;
+/// can't change it now.
+pub const PLATES_TABLE_NAME: &str = "dasch-dev-dr7-plates";
 
 pub const BUCKET: &str = "dasch-prod-user";
+
+/// I included a "dev" in these names even though in retrospect I wish I hadn't;
+/// can't change it now.
+pub fn make_refcat_table_name(refcat: &str) -> String {
+    format!("dasch-dev-dr7-refcat-{}", refcat)
+}
 
 pub struct Services {
     dc: aws_sdk_dynamodb::Client,
@@ -85,7 +94,7 @@ impl Services {
     ///
     /// Each Lambda server process is only responsible for executing a particular
     /// function, so in principle we ought to be able to know which function we're
-    /// implementating and not have to check for every invocation. But in a small
+    /// implementing and not have to check for every invocation. But in a small
     /// amount of testing I couldn't quite figure out how to do this. Nominally the
     /// `_HANDLER` environment variable should tell us what function we are, but
     /// with our deployment method, it's always set to `bootstrap`. This is almost
@@ -102,6 +111,8 @@ impl Services {
             Ok(lightcurve::handler(payload, &self.dc, &self.s3c, &self.bin2).await?)
         } else if arn.ends_with("platephot") {
             Ok(platephot::handler(payload, &self.dc, &self.s3c, &self.bin64).await?)
+        } else if arn.ends_with("presign_photcal_asdf") {
+            Ok(presign::handle_photcal_asdf(payload, &self.s3c).await?)
         } else if arn.ends_with("querycat") {
             Ok(querycat::handler(payload, &self.dc, &self.bin64).await?)
         } else if arn.ends_with("queryexps") {

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "hexid": {
+      "type": "string",
+      "description": "The hexadecimal identifier of the file to fetch"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "hexid"
+  ],
+  "description": "Obtain a presigned S3 link to access a DASCH photometric calibration ASDF metadata file"
+}

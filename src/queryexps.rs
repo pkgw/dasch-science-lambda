@@ -28,13 +28,13 @@ use crate::{
     },
     photdata::{get_limiting_records, LimitsPlateRecord},
     wcs::WcsCollection,
-    BUCKET,
+    BUCKET, PLATES_TABLE_NAME,
 };
 
 /// Sync with `json-schemas/queryexps_request.json`, which then needs to be
 /// synced into S3.
 #[derive(Deserialize)]
-pub struct Request {
+struct Request {
     pub ra_deg: f64,
     pub dec_deg: f64,
 }
@@ -64,7 +64,7 @@ pub async fn handler(
     )?)
 }
 
-pub async fn implementation(
+async fn implementation(
     request: Request,
     dc: &aws_sdk_dynamodb::Client,
     s3: &aws_sdk_s3::Client,
@@ -186,7 +186,6 @@ pub async fn implementation(
     let base_builder = aws_sdk_dynamodb::types::KeysAndAttributes::builder()
         .projection_expression(PROJECTION_EXPRESSION);
 
-    let table_name = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
     let mut unprocessed_keys: Option<HashMap<String, aws_sdk_dynamodb::types::KeysAndAttributes>> =
         None;
     let mut remaining_ids = candidates.keys();
@@ -201,7 +200,7 @@ pub async fn implementation(
 
         let mut keys = unprocessed_keys
             .take()
-            .and_then(|mut t| t.remove(&table_name))
+            .and_then(|mut t| t.remove(PLATES_TABLE_NAME))
             .map(|kv| kv.keys)
             .unwrap_or_default();
 
@@ -230,7 +229,7 @@ pub async fn implementation(
         let resp = dc
             .batch_get_item()
             .request_items(
-                &table_name,
+                PLATES_TABLE_NAME,
                 base_builder.clone().set_keys(Some(keys)).build()?,
             )
             .send()
@@ -239,7 +238,7 @@ pub async fn implementation(
         let mut chunk: Vec<PlatesResult> = serde_dynamo::from_items(
             resp.responses
                 .unwrap()
-                .remove(&table_name)
+                .remove(PLATES_TABLE_NAME)
                 .unwrap_or_default(),
         )?;
 

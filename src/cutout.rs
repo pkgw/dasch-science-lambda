@@ -23,13 +23,13 @@ use serde_json::Value;
 use crate::{
     fitsfile::FitsFile,
     mosaics::{load_b01_header, wcslib_solnum},
-    BUCKET,
+    BUCKET, PLATES_TABLE_NAME,
 };
 
 /// Sync with `json-schemas/cutout_request.json`, which then needs to be
 /// synced into S3.
 #[derive(Deserialize)]
-pub struct Request {
+struct Request {
     plate_id: String,
     solution_number: usize,
     center_ra_deg: f64,
@@ -98,10 +98,7 @@ impl TryFrom<isize> for DeltaRotation {
     }
 }
 
-pub async fn implementation(
-    request: Request,
-    dc: &aws_sdk_dynamodb::Client,
-) -> Result<String, Error> {
+async fn implementation(request: Request, dc: &aws_sdk_dynamodb::Client) -> Result<String, Error> {
     // Early validation, with NaN-sensitive logic
 
     if !(request.center_ra_deg >= 0. && request.center_ra_deg <= 360.) {
@@ -114,11 +111,9 @@ pub async fn implementation(
 
     // Get the information we need about this plate and validate the basic request.
 
-    let plates_table = format!("dasch-{}-dr7-plates", super::ENVIRONMENT);
-
     let result = dc
         .get_item()
-        .table_name(plates_table)
+        .table_name(PLATES_TABLE_NAME)
         .key("plateId", AttributeValue::S(request.plate_id.clone()))
         .projection_expression(
             "astrometry.b01HeaderGz,\
