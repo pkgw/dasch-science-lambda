@@ -2,8 +2,8 @@
 //!
 //! This executable defines a server that expects to be interacted with
 //! according to AWS API Gateway's "proxy event" protocol. This adds an
-//! additional layer of complexity beyond simple JSON-in, JSON-out. The "bare"
-//! version of the server is simpler and is more useful for local testing.
+//! additional layer of complexity beyond simple JSON-in, JSON-out. The
+//! "oneshot" version of the server is more useful for local testing.
 
 use lambda_http::{run, service_fn, Error, Request, RequestExt, RequestPayloadExt};
 use serde_json::Value;

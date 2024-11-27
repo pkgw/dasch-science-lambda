@@ -1,11 +1,11 @@
 //! The AWS/Lambda-powered DASCH data services
 //!
 //! This library crate implements the data services needed for the DASCH
-//! Lambdas. This common codebase is then compiled into three different
-//! executables: `dasch-science-lambda-oneshot`, `dasch-science-lambda-bare` and
-//! `dasch-science-lambda-proxyevent`. The first two are useful for local
-//! testing. while the last has support for the more complex AWS API Gateway
-//! "proxy event" framework that we use for our actual cloud deployment.
+//! Lambdas. This common codebase is then compiled into two executables:
+//! `dasch-science-lambda-oneshot` and `dasch-science-lambda-proxyevent`. The
+//! first is useful for local testing. The second has support for the more
+//! complex AWS API Gateway "proxy event" framework that we use for our actual
+//! cloud deployment.
 //!
 //! It was hard to find good examples of how a Rust Lambda implementation should
 //! look. Here's one good one:
@@ -19,12 +19,14 @@
 //! can't emit CSV.
 
 use lambda_runtime::{tracing, Error};
+use serde::Serialize;
 use serde_json::Value;
 
 mod cutout;
 mod dynamo_types;
 mod fitsfile;
 mod gscbin;
+pub mod http_types;
 mod lightcurve;
 mod mosaics;
 mod photdata;
@@ -55,6 +57,12 @@ pub struct Services {
     bin1: gscbin::GscBinning,
     bin2: gscbin::GscBinning,
     bin64: gscbin::GscBinning,
+}
+
+pub fn simple_response<T: Serialize>(value: &T) -> Result<http_types::Response, Error> {
+    let builder = http_types::ResponseBuilder::new();
+    let text = serde_json::to_string(value)?;
+    Ok(builder.body(http_types::Body::Text(text))?)
 }
 
 impl Services {
@@ -99,7 +107,11 @@ impl Services {
     /// `_HANDLER` environment variable should tell us what function we are, but
     /// with our deployment method, it's always set to `bootstrap`. This is almost
     /// surely all about my ignorance of how Lambda works.
-    pub async fn dispatch(&self, mut arn: String, payload: Option<Value>) -> Result<Value, Error> {
+    pub async fn dispatch(
+        &self,
+        mut arn: String,
+        payload: Option<Value>,
+    ) -> Result<http_types::Response, Error> {
         // Local testing environment?
         if arn.ends_with(":test_function") {
             arn = std::env::var("DASCH_LOCALTEST_ARN").unwrap();

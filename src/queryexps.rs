@@ -23,10 +23,12 @@ use tokio::io::AsyncBufReadExt;
 
 use crate::{
     dynamo_types::plates_queryexps::*,
+    http_types::Response,
     mosaics::{
         load_b01_header, wcslib_solnum, PIXELS_PER_MM, PLATE_ID_BY_SERIES, PLATE_SCALE_BY_SERIES,
     },
     photdata::{get_limiting_records, LimitsPlateRecord},
+    simple_response,
     wcs::WcsCollection,
     BUCKET, PLATES_TABLE_NAME,
 };
@@ -51,17 +53,15 @@ pub async fn handler(
     s3: &aws_sdk_s3::Client,
     bin1: &crate::gscbin::GscBinning,
     bin2: &crate::gscbin::GscBinning,
-) -> Result<Value, Error> {
-    Ok(serde_json::to_value(
-        implementation(
-            serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
-            dc,
-            s3,
-            bin1,
-            bin2,
-        )
-        .await?,
-    )?)
+) -> Result<Response, Error> {
+    Ok(implementation(
+        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        dc,
+        s3,
+        bin1,
+        bin2,
+    )
+    .await?)
 }
 
 async fn implementation(
@@ -70,7 +70,7 @@ async fn implementation(
     s3: &aws_sdk_s3::Client,
     bin1: &crate::gscbin::GscBinning,
     bin2: &crate::gscbin::GscBinning,
-) -> Result<Vec<String>, Error> {
+) -> Result<Response, Error> {
     // Early validation, with NaN-sensitive logic
 
     if !(request.ra_deg >= 0. && request.ra_deg <= 360.) {
@@ -258,7 +258,7 @@ async fn implementation(
         unprocessed_keys = resp.unprocessed_keys;
     }
 
-    Ok(rows)
+    simple_response(&rows)
 }
 
 fn process_one(

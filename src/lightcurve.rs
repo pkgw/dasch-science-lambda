@@ -9,9 +9,10 @@ use std::collections::{hash_map::Entry, HashMap};
 
 use crate::{
     dynamo_types::refcat_lightcurve::*,
+    http_types::Response,
     make_refcat_table_name,
     photdata::{get_limiting_records, LimitsPlateRecord, MagRecord, OutputRecord},
-    BUCKET,
+    simple_response, BUCKET,
 };
 
 /// Sync with `json-schemas/lightcurve_request.json`, which then needs to be
@@ -28,16 +29,14 @@ pub async fn handler(
     dc: &aws_sdk_dynamodb::Client,
     s3c: &aws_sdk_s3::Client,
     bin2: &crate::gscbin::GscBinning,
-) -> Result<Value, Error> {
-    Ok(serde_json::to_value(
-        implementation(
-            serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
-            dc,
-            s3c,
-            bin2,
-        )
-        .await?,
-    )?)
+) -> Result<Response, Error> {
+    Ok(implementation(
+        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        dc,
+        s3c,
+        bin2,
+    )
+    .await?)
 }
 
 async fn implementation(
@@ -45,7 +44,7 @@ async fn implementation(
     dc: &aws_sdk_dynamodb::Client,
     s3c: &aws_sdk_s3::Client,
     bin2: &crate::gscbin::GscBinning,
-) -> Result<Vec<String>, Error> {
+) -> Result<Response, Error> {
     // Initial validation
 
     match request.refcat.as_ref() {
@@ -167,5 +166,5 @@ async fn implementation(
 
     let mut lines = vec![OutputRecord::csv_header()];
     lines.extend(outputs.drain(..).map(|r| r.as_csv_row()));
-    Ok(lines)
+    simple_response(&lines)
 }
