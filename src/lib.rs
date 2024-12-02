@@ -21,6 +21,7 @@
 use lambda_runtime::{tracing, Error};
 use serde::Serialize;
 use serde_json::Value;
+use std::time::Duration;
 
 mod cutout;
 mod dynamo_types;
@@ -57,6 +58,7 @@ pub struct Services {
     bin1: gscbin::GscBinning,
     bin2: gscbin::GscBinning,
     bin64: gscbin::GscBinning,
+    presign_config: aws_sdk_s3::presigning::PresigningConfig,
 }
 
 pub fn simple_response<T: Serialize>(value: &T) -> Result<http_types::Response, Error> {
@@ -83,6 +85,8 @@ impl Services {
         let bin1 = gscbin::GscBinning::new1();
         let bin2 = gscbin::GscBinning::new2();
         let bin64 = gscbin::GscBinning::new64();
+        let presign_config =
+            aws_sdk_s3::presigning::PresigningConfig::expires_in(Duration::from_secs(3600))?;
 
         Ok(Services {
             dc,
@@ -90,6 +94,7 @@ impl Services {
             bin1,
             bin2,
             bin64,
+            presign_config,
         })
     }
 
@@ -124,7 +129,7 @@ impl Services {
         } else if arn.ends_with("platephot") {
             Ok(platephot::handler(payload, &self.dc, &self.s3c, &self.bin64).await?)
         } else if arn.ends_with("presign_photcal_asdf") {
-            Ok(presign::handle_photcal_asdf(payload, &self.s3c).await?)
+            Ok(presign::handle_photcal_asdf(payload, &self.s3c, &self.presign_config).await?)
         } else if arn.ends_with("querycat") {
             Ok(querycat::handler(payload, &self.dc, &self.bin64).await?)
         } else if arn.ends_with("queryexps") {
