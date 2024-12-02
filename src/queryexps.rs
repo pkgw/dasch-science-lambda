@@ -180,7 +180,13 @@ async fn implementation(
         limMagApass,\
         limMagAtlas,\
         medianColortermApass,\
-        medianColortermAtlas"
+        medianColortermAtlas,\
+        nMagdepApass,\
+        nMagdepAtlas,\
+        nSolutionsApass,\
+        nSolutionsAtlas,\
+        resultIdApass,\
+        resultIdAtlas"
         .to_owned()];
 
     let base_builder = aws_sdk_dynamodb::types::KeysAndAttributes::builder()
@@ -276,6 +282,7 @@ fn process_one(
 
     let mos = plate.mosaic.as_ref();
     let astrom = plate.astrometry.as_ref();
+    let phot = plate.photometry.as_ref();
 
     let mut solved_wcs = astrom.map(|a| &a.b01_header_gz).and_then(|gzh| {
         if gzh.is_empty() {
@@ -322,20 +329,46 @@ fn process_one(
 
     let series_id = *PLATE_ID_BY_SERIES.get(&plate.series).unwrap();
 
-    // Colorterm info is per-plate, so we can compute it up here.
+    // Phot-related info is per-plate, so we can compute it up here.
 
-    let mct_apass_text = plate
-        .photometry
-        .as_ref()
+    let mct_apass_text = phot
         .and_then(|p| p.median_colorterm_apass)
         .map(|x| format!("{x:.3}"))
         .unwrap_or_default();
 
-    let mct_atlas_text = plate
-        .photometry
-        .as_ref()
+    let mct_atlas_text = phot
         .and_then(|p| p.median_colorterm_atlas)
         .map(|x| format!("{x:.3}"))
+        .unwrap_or_default();
+
+    let nm_apass_text = phot
+        .and_then(|p| p.n_magdep_apass)
+        .map(|x| x.to_string())
+        .unwrap_or_default();
+
+    let nm_atlas_text = phot
+        .and_then(|p| p.n_magdep_atlas)
+        .map(|x| x.to_string())
+        .unwrap_or_default();
+
+    let ns_apass_text = phot
+        .and_then(|p| p.n_solutions_apass)
+        .map(|x| x.to_string())
+        .unwrap_or_default();
+
+    let ns_atlas_text = phot
+        .and_then(|p| p.n_solutions_atlas)
+        .map(|x| x.to_string())
+        .unwrap_or_default();
+
+    // If unavailable, the result ID will be an empty vec, which gives use the
+    // desired result.
+    let rid_apass_text = phot
+        .map(|p| hex::encode(&p.result_id_apass))
+        .unwrap_or_default();
+
+    let rid_atlas_text = phot
+        .map(|p| hex::encode(&p.result_id_atlas))
         .unwrap_or_default();
 
     // Finally we're ready to go
@@ -493,7 +526,7 @@ fn process_one(
         let mosdate = mos.map(|m| m.creation_date.as_ref()).unwrap_or("");
 
         let row = format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1},{},{},{},{},{},{},{},{},{},{}",
             plate.series,
             plate.plate_number,
             scan_num,
@@ -514,6 +547,12 @@ fn process_one(
             atlas_lim_text,
             mct_apass_text,
             mct_atlas_text,
+            nm_apass_text,
+            nm_atlas_text,
+            ns_apass_text,
+            ns_atlas_text,
+            rid_apass_text,
+            rid_atlas_text,
         );
         rows.push(row);
     }

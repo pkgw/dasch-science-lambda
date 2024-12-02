@@ -16,6 +16,7 @@ base64 = "0.22"
 binary_serde = "1.0"
 fitswcs-sys = { path = "crates/fitswcs-sys", version = "0.1.0" }
 flate2 = { version = "^1", features = ["zlib"], default-features = false }
+hex = "0.4"
 http = "1.1"
 lambda_http = "0.13"
 lambda_runtime = "0.13"

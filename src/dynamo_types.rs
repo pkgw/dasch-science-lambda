@@ -31,6 +31,12 @@ pub mod plates_queryexps {
         mosaic.scanNum,\
         photometry.medianColortermApass,\
         photometry.medianColortermAtlas,\
+        photometry.nMagdepApass,\
+        photometry.nMagdepAtlas,\
+        photometry.nSolutionsApass,\
+        photometry.nSolutionsAtlas,\
+        photometry.resultIdApass,\
+        photometry.resultIdAtlas,\
         plateId,\
         plateNumber,\
         series";
@@ -85,6 +91,18 @@ pub mod plates_queryexps {
     pub struct PlatesPhotometryData {
         pub median_colorterm_apass: Option<f32>,
         pub median_colorterm_atlas: Option<f32>,
+        pub n_magdep_apass: Option<u8>,
+        pub n_magdep_atlas: Option<u8>,
+        pub n_solutions_apass: Option<u8>,
+        pub n_solutions_atlas: Option<u8>,
+
+        #[serde(default, with = "serde_bytes")]
+        // should be Option<>, but not sure how to nest the custom deserializer
+        pub result_id_apass: Vec<u8>,
+
+        #[serde(default, with = "serde_bytes")]
+        // should be Option<>, but not sure how to nest the custom deserializer
+        pub result_id_atlas: Vec<u8>,
     }
 }
 

@@ -722,6 +722,7 @@ dependencies = [
  "binary_serde",
  "fitswcs-sys",
  "flate2",
+ "hex",
  "http 1.1.0",
  "lambda_http",
  "lambda_runtime",
