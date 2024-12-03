@@ -9,6 +9,9 @@
 //! anything that we can't easily do ourselves. We reuse the same set of
 //! sky-binned CSV files that that API uses to narrow down the list of plates to
 //! search.
+//!
+//! The response type schema is in `json-schemas/generic_csv.json`, which
+//! needs to be synced into S3 for the API documentation framework.
 
 use anyhow::Result;
 use aws_sdk_dynamodb::types::AttributeValue;

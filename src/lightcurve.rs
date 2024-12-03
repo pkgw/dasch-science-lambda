@@ -1,4 +1,7 @@
 //! The lightcurve retrieval API.
+//!
+//! The response type schema is in `json-schemas/generic_csv.json`, which
+//! needs to be synced into S3 for the API documentation framework.
 
 use aws_sdk_dynamodb::types::AttributeValue;
 use binary_serde::{BinarySerde, Endianness};

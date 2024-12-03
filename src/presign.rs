@@ -1,16 +1,30 @@
 //! API services to get presigned S3 links.
 //!
 //! These are very simple API endpoints that return presigned S3 links for
-//! various data resources.
+//! various data resources. For processing convenience, the response is a 307
+//! redirect to the desired link, also containing JSON content capturing the
+//! link.
 
 use aws_sdk_s3::presigning::PresigningConfig;
 use lambda_http::Error;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::http_types::{Body, Response, ResponseBuilder, StatusCode};
 
 const INFRA_BUCKET: &str = "dasch-prod-infra";
+
+/// Return a generic redirection response. The status code will be 307, with a
+/// Location header, and the response body content will be JSON matching the
+/// `json-schemas/generic_location.json` schema.
+pub fn redirect_response<S: AsRef<str>>(location: S) -> Result<Response, Error> {
+    let location = location.as_ref();
+    let builder = ResponseBuilder::new()
+        .header("Location", location)
+        .status(StatusCode::TEMPORARY_REDIRECT);
+    let text = serde_json::to_string(&json!({"location": location}))?;
+    Ok(builder.body(Body::Text(text))?)
+}
 
 #[derive(Deserialize)]
 struct PhotcalAsdfRequest {
@@ -46,9 +60,5 @@ async fn implement_photcal_asdf(
         .presigned(pc.clone())
         .await?;
 
-    let builder = ResponseBuilder::new()
-        .header("Location", prereq.uri())
-        .status(StatusCode::TEMPORARY_REDIRECT);
-
-    Ok(builder.body(Body::Empty)?)
+    redirect_response(prereq.uri())
 }
