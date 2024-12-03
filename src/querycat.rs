@@ -1,4 +1,7 @@
 //! Querying one of the reference catalogs by position to obtain source tables.
+//!
+//! The response type schema is in `json-schemas/generic_csv.json`, which
+//! needs to be synced into S3 for the API documentation framework.
 
 use aws_sdk_dynamodb::types::AttributeValue;
 use lambda_http::Error;

@@ -10,6 +10,9 @@
 //! buffered Lambdas, which means we can operate in the cheaper buffered mode.
 //! The result of a buffered Lambda can only be JSON, so we return a complete
 //! gzipped FITS file as a Base64-encoded string.
+//!
+//! The response type schema is in `json-schemas/cutout_response.json`, which
+//! needs to be synced into S3 for the API documentation framework.
 
 use aws_sdk_dynamodb::types::AttributeValue;
 use base64::{engine::general_purpose::STANDARD, write::EncoderWriter};

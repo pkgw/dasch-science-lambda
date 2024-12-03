@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "location": {
+      "type": "string",
+      "description": "The URL payload."
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "description": "An object containing a URL."
+}
