@@ -86,7 +86,7 @@ impl Services {
         let bin2 = gscbin::GscBinning::new2();
         let bin64 = gscbin::GscBinning::new64();
         let presign_config =
-            aws_sdk_s3::presigning::PresigningConfig::expires_in(Duration::from_secs(3600))?;
+            aws_sdk_s3::presigning::PresigningConfig::expires_in(Duration::from_secs(900))?;
 
         Ok(Services {
             dc,

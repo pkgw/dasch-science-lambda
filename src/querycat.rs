@@ -151,12 +151,25 @@ async fn read_dec_bin(
         };
 
     for itbin in tbin0..=tbin1 {
+        // The `attribute_exists()` filter here is to work around a small number
+        // of bizarre records in the (ATLAS only?) photdb files that are sorted
+        // according to a gsc_bin_index value that makes no sense. For instance,
+        // in the 0000000000.dat file under gsc_bin_index = 5 is one phot record
+        // for ref_number = 9043030496, which has a cataloged dec of ~-67
+        // instead of the ~-89.9 associated with that bin. I have no idea how
+        // these got into the photfiles, but my ATLAS processing did have issues
+        // with Lustre so they might represent some kind of filesystem
+        // corruption. Anyway, my code to add phot metadata to the DynamoDB
+        // ended up creating new items for these things, resulting in records
+        // that have no information *besides* the phot info. We should ignore
+        // them.
         let mut resp = dc
             .query()
             .table_name(cat_table)
             .expression_attribute_names("#p", "gscBinIndex")
             .expression_attribute_values(":bin", AttributeValue::N(itbin.to_string()))
             .key_condition_expression("#p = :bin")
+            .filter_expression("attribute_exists(ra)")
             .into_paginator()
             .items()
             .send();
