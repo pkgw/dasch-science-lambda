@@ -15,8 +15,10 @@
 //! Streaming lambdas are more expensive than buffered lambdas, which have a 6
 //! MB response limit. So we should buffer when possible.
 //!
-//! Annoyingly, the buffered response mechanism can *only* output JSON, so we
-//! can't emit CSV.
+//! In my first implementation, it was only possible to emit strictly JSON
+//! outputs, so several of the APIs return JSON when they would more naturally
+//! return something like CSV. I have since figured out how to avoid that
+//! limitation.
 
 use lambda_runtime::{tracing, Error};
 use serde::Serialize;
