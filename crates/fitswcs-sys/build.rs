@@ -72,6 +72,10 @@ fn compile_wcslib(cfitsio_prefix: &Path) -> PathBuf {
     let mut cflib = cfitsio_prefix.to_owned();
     cflib.push("lib");
 
+    // `autoconf` tries to honor this variable and run a parallel `make`, but
+    // the wcslib makefile is not parallel-safe.
+    std::env::set_var("NUM_JOBS", "1");
+
     Config::new("ext/wcslib")
         .disable_shared()
         .disable("flex", None)
