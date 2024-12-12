@@ -15,7 +15,7 @@ use crate::{
     http_types::Response,
     make_refcat_table_name,
     photdata::{get_limiting_records, LimitsPlateRecord, MagRecord, OutputRecord},
-    simple_response, BUCKET,
+    simple_response, USER_BUCKET,
 };
 
 /// Sync with `json-schemas/lightcurve_request.json`, which then needs to be
@@ -108,7 +108,7 @@ async fn implementation(
 
         let result = s3c
             .get_object()
-            .bucket(BUCKET)
+            .bucket(USER_BUCKET)
             .key(&s3_key)
             .range(format!("bytes={}-{}", s, e))
             .send()

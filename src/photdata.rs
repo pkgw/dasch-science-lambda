@@ -3,7 +3,7 @@
 use binary_serde::{BinarySerde, Endianness};
 use lambda_http::Error;
 
-use crate::{gscbin::GscBinning, mosaics::PLATE_SERIES_BY_ID, BUCKET};
+use crate::{gscbin::GscBinning, mosaics::PLATE_SERIES_BY_ID, USER_BUCKET};
 
 /// A record in the binary "magfiles" that store compiled DASCH photometry data.
 /// We cannot rearrange any fields here -- this struct captures the format used
@@ -480,7 +480,7 @@ pub async fn get_limiting_records(
     let s3_key = format!("dasch-dr7-phot-{}/lim_aws.idx", refcat);
     let data = s3
         .get_object()
-        .bucket(BUCKET)
+        .bucket(USER_BUCKET)
         .key(&s3_key)
         .range(format!(
             "bytes={}-{}",
@@ -502,7 +502,7 @@ pub async fn get_limiting_records(
     let s3_key = format!("dasch-dr7-phot-{}/limiting.dat", refcat);
     Ok(s3
         .get_object()
-        .bucket(BUCKET)
+        .bucket(USER_BUCKET)
         .key(&s3_key)
         .range(format!(
             "bytes={}-{}",

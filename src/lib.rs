@@ -46,7 +46,9 @@ mod wcs;
 /// can't change it now.
 pub const PLATES_TABLE_NAME: &str = "dasch-dev-dr7-plates";
 
-pub const BUCKET: &str = "dasch-prod-user";
+pub const USER_BUCKET: &str = "dasch-prod-user";
+
+pub const INFRA_BUCKET: &str = "dasch-prod-infra";
 
 /// I included a "dev" in these names even though in retrospect I wish I hadn't;
 /// can't change it now.

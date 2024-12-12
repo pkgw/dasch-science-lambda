@@ -33,7 +33,7 @@ use crate::{
     photdata::{get_limiting_records, LimitsPlateRecord},
     simple_response,
     wcs::WcsCollection,
-    BUCKET, PLATES_TABLE_NAME,
+    USER_BUCKET, PLATES_TABLE_NAME,
 };
 
 /// Sync with `json-schemas/queryexps_request.json`, which then needs to be
@@ -90,7 +90,7 @@ async fn implementation(
     let total_bin = bin1.get_total_bin(dec_bin, request.ra_deg);
     let s3_key = format!("dasch-dr7-coverage-bins/{}.csv", total_bin);
 
-    let resp = s3.get_object().bucket(BUCKET).key(&s3_key).send().await?;
+    let resp = s3.get_object().bucket(USER_BUCKET).key(&s3_key).send().await?;
     let body = resp.body.into_async_read();
     let mut lines = body.lines();
 
