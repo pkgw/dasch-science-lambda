@@ -15,6 +15,157 @@
 
 use serde::Deserialize;
 
+/// Types for querying the plates table for the `mosaic_package` endpoint.
+pub mod plates_mosaic_package {
+    use serde::Serialize;
+
+    use super::*;
+
+    /// This tiny helper helps us to magically deserialize these types *from*
+    /// DynamoDB with serde_dynamo, and serialize them *to* plain JSON using base64 encoding
+    /// of the byte vectors.
+    mod serb64 {
+        use base64::engine::general_purpose::STANDARD;
+        use serde::Serializer;
+
+        pub fn serialize<S: Serializer>(value: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_str(&base64::display::Base64Display::new(value, &STANDARD))
+        }
+    }
+
+    pub const PROJECTION_EXPRESSION: &str = "\
+        astrometry.b01HeaderGz,\
+        astrometry.exposures,\
+        astrometry.resultId,\
+        astrometry.rotationDelta,\
+        mosaic.b01Height,\
+        mosaic.b01OrigFileMD5,\
+        mosaic.b01OrigFileSize,\
+        mosaic.b01Width,\
+        mosaic.b16OrigFileMD5,\
+        mosaic.b16OrigFileSize,\
+        mosaic.creationDate,\
+        mosaic.legacyComment,\
+        mosaic.legacyRotation,\
+        mosaic.mosNum,\
+        mosaic.scanNum,\
+        mosaic.resultId,\
+        mosaic.s3KeyTemplate,\
+        photometry.medianColortermApass,\
+        photometry.medianColortermAtlas,\
+        photometry.nMagdepApass,\
+        photometry.nMagdepAtlas,\
+        photometry.nSolutionsApass,\
+        photometry.nSolutionsAtlas,\
+        photometry.resultIdApass,\
+        photometry.resultIdAtlas,\
+        plateNumber,\
+        series";
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlatesResult {
+        pub astrometry: Option<PlatesAstrometryResult>,
+        pub mosaic: Option<PlatesMosaicResult>,
+        pub photometry: Option<PlatesPhotometryData>,
+        pub plate_number: usize,
+        pub series: String,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlatesAstrometryResult {
+        // `default` because this should be Option<>, but not sure how to nest the custom deserializer
+        #[serde(
+            default,
+            deserialize_with = "serde_bytes::deserialize",
+            serialize_with = "serb64::serialize"
+        )]
+        pub b01_header_gz: Vec<u8>,
+
+        #[serde(
+            default,
+            deserialize_with = "serde_bytes::deserialize",
+            serialize_with = "serb64::serialize"
+        )]
+        pub result_id: Vec<u8>,
+
+        pub rotation_delta: Option<isize>,
+        pub exposures: Vec<Option<PlatesExposureResult>>,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlatesExposureResult {
+        pub center_source: Option<String>,
+        pub date_acc_days: Option<f64>,
+        pub date_source: Option<String>,
+        pub dec_deg: Option<f64>,
+        pub dur_min: Option<f64>,
+        pub midpoint_date: Option<String>,
+        pub number: i8,
+        pub ra_deg: Option<f64>,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlatesMosaicResult {
+        pub b01_height: usize,
+        #[serde(
+            rename = "b01OrigFileMD5",
+            deserialize_with = "serde_bytes::deserialize",
+            serialize_with = "serb64::serialize"
+        )]
+        pub b01_orig_file_md5: Vec<u8>,
+        pub b01_orig_file_size: u64,
+        pub b01_width: usize,
+        #[serde(
+            rename = "b16OrigFileMD5",
+            deserialize_with = "serde_bytes::deserialize",
+            serialize_with = "serb64::serialize"
+        )]
+        pub b16_orig_file_md5: Vec<u8>,
+        pub b16_orig_file_size: u64,
+        pub creation_date: String,
+        pub legacy_comment: Option<String>,
+        pub legacy_rotation: u16,
+        pub mos_num: i8,
+        pub scan_num: i8,
+        #[serde(
+            default,
+            deserialize_with = "serde_bytes::deserialize",
+            serialize_with = "serb64::serialize"
+        )]
+        pub result_id: Vec<u8>,
+        pub s3_key_template: String,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PlatesPhotometryData {
+        pub median_colorterm_apass: Option<f32>,
+        pub median_colorterm_atlas: Option<f32>,
+        pub n_magdep_apass: Option<u8>,
+        pub n_magdep_atlas: Option<u8>,
+        pub n_solutions_apass: Option<u8>,
+        pub n_solutions_atlas: Option<u8>,
+
+        #[serde(
+            default,
+            deserialize_with = "serde_bytes::deserialize",
+            serialize_with = "serb64::serialize"
+        )]
+        pub result_id_apass: Vec<u8>,
+
+        #[serde(
+            default,
+            deserialize_with = "serde_bytes::deserialize",
+            serialize_with = "serb64::serialize"
+        )]
+        pub result_id_atlas: Vec<u8>,
+    }
+}
+
 /// Types for querying the plates table for the `queryexps` endpoint.
 pub mod plates_queryexps {
     use super::*;

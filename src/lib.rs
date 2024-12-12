@@ -130,6 +130,11 @@ impl Services {
             Ok(cutout::handler(payload, &self.dc).await?)
         } else if arn.ends_with("lightcurve") {
             Ok(lightcurve::handler(payload, &self.dc, &self.s3c, &self.bin2).await?)
+        } else if arn.ends_with("mosaic_package") {
+            Ok(
+                mosaics::handle_mosaic_package(payload, &self.dc, &self.s3c, &self.presign_config)
+                    .await?,
+            )
         } else if arn.ends_with("platephot") {
             Ok(platephot::handler(payload, &self.dc, &self.s3c, &self.bin64).await?)
         } else if arn.ends_with("presign_photcal_asdf") {
