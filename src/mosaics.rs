@@ -304,8 +304,10 @@ struct MosaicPackageRequest {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct MosaicPackageResponse {
     base_fits_url: String,
+    base_fits_size: i64,
     metadata: PlatesResult,
 }
 
@@ -367,11 +369,23 @@ async fn implement_mosaic_package(
     })?;
 
     let bin = if is_bin01 { "01" } else { "16" };
-    let tnx = if is_bin01 { "tnx" } else { "" };
+    let tnx = if is_bin01 { "_tnx" } else { "" };
     let key = mos_data
         .s3_key_template
         .replace("{bin}", bin)
         .replace("{tnx}", tnx);
+
+    let base_fits_size = s3
+        .head_object()
+        .bucket(USER_BUCKET)
+        .key(&key)
+        .send()
+        .await?
+        .content_length
+        .ok_or_else(|| -> Error {
+            format!("failed to get size of S3 object {}:{}", USER_BUCKET, key).into()
+        })?;
+
     let presign = s3
         .get_object()
         .bucket(USER_BUCKET)
@@ -383,6 +397,7 @@ async fn implement_mosaic_package(
 
     simple_response(&MosaicPackageResponse {
         base_fits_url: presign.uri().to_string(),
+        base_fits_size,
         metadata: item,
     })
 }
