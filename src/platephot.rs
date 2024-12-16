@@ -13,7 +13,7 @@ use crate::{
     gscbin::{GscBinning, D2R},
     http_types::Response,
     photdata::{MagRecord, OutputRecord},
-    simple_response, BUCKET, PLATES_TABLE_NAME,
+    simple_response, USER_BUCKET, PLATES_TABLE_NAME,
 };
 
 const HALFSIZE_DEG: f64 = 10. / 60.; // 10 arcmin
@@ -218,7 +218,7 @@ async fn implementation(
 
         let mut result = s3
             .get_object()
-            .bucket(BUCKET)
+            .bucket(USER_BUCKET)
             .key(&s3_key)
             .range(range)
             .send()
@@ -268,7 +268,7 @@ async fn read_mega_index(
 
     let mut result = s3
         .get_object()
-        .bucket(BUCKET)
+        .bucket(USER_BUCKET)
         .key(&s3_key)
         .range(format!("bytes={}-{}", start_byte, end_byte))
         .send()

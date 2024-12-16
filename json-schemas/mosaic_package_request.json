@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "plate_id": {
+      "type": "string",
+      "description": "The identifier of the desired plate (e.g., \"a03393\")"
+    },
+    "binning": {
+      "type": "number",
+      "enum": [
+        1,
+        16
+      ],
+      "description": "Which mosaic binning level to select for packaging"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "plate_id",
+    "binning"
+  ],
+  "description": "Prepare data for retrieval of a full-plate mosaic"
+}

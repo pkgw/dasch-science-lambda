@@ -10,9 +10,10 @@ use lambda_http::Error;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::http_types::{Body, Response, ResponseBuilder, StatusCode};
-
-const INFRA_BUCKET: &str = "dasch-prod-infra";
+use crate::{
+    http_types::{Body, Response, ResponseBuilder, StatusCode},
+    INFRA_BUCKET,
+};
 
 /// Return a generic redirection response. The status code will be 307, with a
 /// Location header, and the response body content will be JSON matching the

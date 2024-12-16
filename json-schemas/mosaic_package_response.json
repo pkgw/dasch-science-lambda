@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "base_fits_url": {
+      "type": "string",
+      "description": "An AWS S3 presigned URL for retrieving the \"base\" mosaic FITS file"
+    },
+    "base_fits_size": {
+      "type": "number",
+      "description": "The size of the file at `base_fits_url`, in bytes"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Detailed metadata about the plate"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "base_fits_url",
+    "base_fits_size",
+    "metadata"
+  ],
+  "description": "Response to the mosaic_package request"
+}

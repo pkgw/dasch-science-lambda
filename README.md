@@ -19,6 +19,7 @@ The main APIs are:
 - `src/cutout.rs` extracts cutout FITS images from the whole-plate mosaics
 - `src/lightcurve.rs` retrieves a lightcurve for a specific source
 - `src/platephot.rs` retrieves photometry for a subset of a single plate
+- `src/mosaics.rs` retrieves information needed to assemble a "value-added mosaic FITS"
 - `src/presign.rs` generates presigned S3 links for low-level data access
 - `src/querycat.rs` queries one of the “reference catalogs” for sources
 - `src/queryexps.rs` queries for plate exposures overlapping a specified sky

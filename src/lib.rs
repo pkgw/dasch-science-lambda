@@ -15,8 +15,10 @@
 //! Streaming lambdas are more expensive than buffered lambdas, which have a 6
 //! MB response limit. So we should buffer when possible.
 //!
-//! Annoyingly, the buffered response mechanism can *only* output JSON, so we
-//! can't emit CSV.
+//! In my first implementation, it was only possible to emit strictly JSON
+//! outputs, so several of the APIs return JSON when they would more naturally
+//! return something like CSV. I have since figured out how to avoid that
+//! limitation.
 
 use lambda_runtime::{tracing, Error};
 use serde::Serialize;
@@ -44,7 +46,9 @@ mod wcs;
 /// can't change it now.
 pub const PLATES_TABLE_NAME: &str = "dasch-dev-dr7-plates";
 
-pub const BUCKET: &str = "dasch-prod-user";
+pub const USER_BUCKET: &str = "dasch-prod-user";
+
+pub const INFRA_BUCKET: &str = "dasch-prod-infra";
 
 /// I included a "dev" in these names even though in retrospect I wish I hadn't;
 /// can't change it now.
@@ -126,6 +130,11 @@ impl Services {
             Ok(cutout::handler(payload, &self.dc).await?)
         } else if arn.ends_with("lightcurve") {
             Ok(lightcurve::handler(payload, &self.dc, &self.s3c, &self.bin2).await?)
+        } else if arn.ends_with("mosaic_package") {
+            Ok(
+                mosaics::handle_mosaic_package(payload, &self.dc, &self.s3c, &self.presign_config)
+                    .await?,
+            )
         } else if arn.ends_with("platephot") {
             Ok(platephot::handler(payload, &self.dc, &self.s3c, &self.bin64).await?)
         } else if arn.ends_with("presign_photcal_asdf") {

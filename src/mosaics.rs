@@ -1,18 +1,22 @@
-//! Some stuff about plates, exposures, mosaics, etc.
-//!
-//! Ideally we'd centralize the DynamoDB serde types here, but I don't know if
-//! there's a nice way to do that with projections, and it seems pretty helpful
-//! to maintain those to keep data transfer sizes minimal.
+//! Some stuff about plates, exposures, mosaics, etc, as well as the
+//! `mosaic_package` endpoint.
 
 use anyhow::{bail, Result};
+use aws_sdk_dynamodb::types::AttributeValue;
+use aws_sdk_s3::presigning::PresigningConfig;
 use lambda_http::Error;
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     collections::HashMap,
     io::{prelude::*, ErrorKind},
 };
 
-use crate::wcs::WcsCollection;
+use crate::{
+    dynamo_types::plates_mosaic_package::*, http_types::Response, simple_response,
+    wcs::WcsCollection, PLATES_TABLE_NAME, USER_BUCKET,
+};
 
 pub const PIXELS_PER_MM: f64 = 90.9090;
 
@@ -288,5 +292,116 @@ pub fn wcslib_solnum(solnum: usize, n_solutions: usize) -> Result<usize> {
         0
     } else {
         solnum + 1 // 1 <=> "A", 2 <=> "B", etc
+    })
+}
+
+// The mosaic_package endpoint
+
+/// Sync with `json-schemas/mosaic_package_request.json`, which then needs to be
+/// synced into S3.
+#[derive(Deserialize)]
+struct MosaicPackageRequest {
+    plate_id: String,
+    binning: u8,
+}
+
+/// Sync with `json-schemas/mosaic_package_response.json`, which then needs to be
+/// synced into S3.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MosaicPackageResponse {
+    base_fits_url: String,
+    base_fits_size: i64,
+    metadata: PlatesResult,
+}
+
+pub async fn handle_mosaic_package(
+    req: Option<Value>,
+    dc: &aws_sdk_dynamodb::Client,
+    s3: &aws_sdk_s3::Client,
+    pc: &PresigningConfig,
+) -> Result<Response, Error> {
+    Ok(implement_mosaic_package(
+        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        dc,
+        s3,
+        pc,
+    )
+    .await?)
+}
+
+async fn implement_mosaic_package(
+    request: MosaicPackageRequest,
+    dc: &aws_sdk_dynamodb::Client,
+    s3: &aws_sdk_s3::Client,
+    pc: &PresigningConfig,
+) -> Result<Response, Error> {
+    // Early validation
+
+    let is_bin01 = match request.binning {
+        1 => true,
+        16 => false,
+        _ => {
+            return Err("illegal binning parameter".into());
+        }
+    };
+
+    // Get the target plate info.
+
+    let result = dc
+        .get_item()
+        .table_name(PLATES_TABLE_NAME)
+        .key("plateId", AttributeValue::S(request.plate_id.clone()))
+        .projection_expression(PROJECTION_EXPRESSION)
+        .send()
+        .await?;
+
+    let item = result
+        .item
+        .ok_or_else(|| -> Error { format!("no such plate_id `{}`", request.plate_id).into() })?;
+
+    let item: PlatesResult = serde_dynamo::from_item(item)?;
+
+    // With that, getting the mosaic is pretty easy.
+
+    let mos_data = item.mosaic.as_ref().ok_or_else(|| -> Error {
+        format!(
+            "plate `{}` has no registered FITS mosaic information (never scanned?)",
+            request.plate_id
+        )
+        .into()
+    })?;
+
+    let bin = if is_bin01 { "01" } else { "16" };
+    let tnx = if is_bin01 { "_tnx" } else { "" };
+    let key = mos_data
+        .s3_key_template
+        .replace("{bin}", bin)
+        .replace("{tnx}", tnx);
+
+    let base_fits_size = s3
+        .head_object()
+        .bucket(USER_BUCKET)
+        .key(&key)
+        .send()
+        .await?
+        .content_length
+        .ok_or_else(|| -> Error {
+            format!("failed to get size of S3 object {}:{}", USER_BUCKET, key).into()
+        })?;
+
+    let presign = s3
+        .get_object()
+        .bucket(USER_BUCKET)
+        .key(&key)
+        .presigned(pc.clone())
+        .await?;
+
+    // All done!
+
+    simple_response(&MosaicPackageResponse {
+        base_fits_url: presign.uri().to_string(),
+        base_fits_size,
+        metadata: item,
     })
 }

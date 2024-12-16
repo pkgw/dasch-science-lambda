@@ -27,7 +27,7 @@ use crate::{
     fitsfile::FitsFile,
     http_types::Response,
     mosaics::{load_b01_header, wcslib_solnum},
-    simple_response, BUCKET, PLATES_TABLE_NAME,
+    simple_response, USER_BUCKET, PLATES_TABLE_NAME,
 };
 
 /// Sync with `json-schemas/cutout_request.json`, which then needs to be
@@ -318,7 +318,7 @@ async fn implementation(
         .s3_key_template
         .replace("{bin}", "01")
         .replace("{tnx}", "_tnx");
-    let s3url = format!("s3://{BUCKET}/{s3path}");
+    let s3url = format!("s3://{USER_BUCKET}/{s3path}");
 
     let src_data = tokio::task::spawn_blocking(move || -> Result<Array<i16, Ix2>, Error> {
         let mut fits = FitsFile::open(s3url)?;
