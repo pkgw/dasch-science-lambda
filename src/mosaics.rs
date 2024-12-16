@@ -297,12 +297,16 @@ pub fn wcslib_solnum(solnum: usize, n_solutions: usize) -> Result<usize> {
 
 // The mosaic_package endpoint
 
+/// Sync with `json-schemas/mosaic_package_request.json`, which then needs to be
+/// synced into S3.
 #[derive(Deserialize)]
 struct MosaicPackageRequest {
     plate_id: String,
     binning: u8,
 }
 
+/// Sync with `json-schemas/mosaic_package_response.json`, which then needs to be
+/// synced into S3.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MosaicPackageResponse {
