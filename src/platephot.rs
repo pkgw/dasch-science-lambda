@@ -11,9 +11,9 @@ use serde_json::Value;
 
 use crate::{
     gscbin::{GscBinning, D2R},
-    http_types::Response,
+    http_types::{HttpExposedError, HttpOptionExt, Response},
     photdata::{MagRecord, OutputRecord},
-    simple_response, USER_BUCKET, PLATES_TABLE_NAME,
+    simple_response, PLATES_TABLE_NAME, USER_BUCKET,
 };
 
 const HALFSIZE_DEG: f64 = 10. / 60.; // 10 arcmin
@@ -57,7 +57,7 @@ pub async fn handler(
     bin64: &GscBinning,
 ) -> Result<Response, Error> {
     Ok(implementation(
-        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        serde_json::from_value(req.ok_or_bad_request("no request payload")?)?,
         dc,
         s3,
         bin64,
@@ -76,16 +76,16 @@ async fn implementation(
     match request.refcat.as_ref() {
         "apass" | "atlas" => {}
         _ => {
-            return Err("illegal refcat parameter".into());
+            return HttpExposedError::bad_request("illegal refcat parameter");
         }
     }
 
     if !(request.center_ra_deg >= 0. && request.center_ra_deg <= 360.) {
-        return Err("illegal center_ra_deg parameter".into());
+        return HttpExposedError::bad_request("illegal center_ra_deg parameter");
     }
 
     if !(request.center_dec_deg >= -90. && request.center_dec_deg <= 90.) {
-        return Err("illegal center_dec_deg parameter".into());
+        return HttpExposedError::bad_request("illegal center_dec_deg parameter");
     }
 
     // Get some information about the target plate. This is barely necessary,
@@ -110,39 +110,30 @@ async fn implementation(
 
     let item = result
         .item
-        .ok_or_else(|| -> Error { format!("no such plate_id `{}`", request.plate_id).into() })?;
+        .ok_or_not_found(format!("no such plate_id `{}`", request.plate_id))?;
 
     let item: PlatesResult = serde_dynamo::from_item(item)?;
-    let mos_data = item.mosaic.ok_or_else(|| -> Error {
-        format!(
-            "plate `{}` has no registered FITS mosaic information (never scanned?)",
-            request.plate_id
-        )
-        .into()
-    })?;
-    let astrom_data = item.astrometry.ok_or_else(|| -> Error {
-        format!(
-            "plate `{}` has no registered astrometric solutions",
-            request.plate_id
-        )
-        .into()
-    })?;
+    let mos_data = item.mosaic.ok_or_unprocessable(format!(
+        "plate `{}` has no registered FITS mosaic information (never scanned?)",
+        request.plate_id
+    ))?;
+    let astrom_data = item.astrometry.ok_or_unprocessable(format!(
+        "plate `{}` has no registered astrometric solutions",
+        request.plate_id
+    ))?;
 
     if request.solution_number >= astrom_data.n_solutions {
-        return Err(format!(
+        return HttpExposedError::not_found(format!(
             "requested astrometric solution #{} (0-based) for plate `{}` but it only has {} solutions",
             request.solution_number,
             request.plate_id,
             astrom_data.n_solutions
-        )
-        .into());
+        ));
     }
 
     let series_id = *crate::mosaics::PLATE_ID_BY_SERIES
         .get(&item.series)
-        .ok_or_else(|| -> Error {
-            format!("no series ID table entry for `{}`", item.series).into()
-        })?;
+        .ok_or_not_found(format!("no series ID table entry for `{}`", item.series))?;
 
     // Figure out which bins we're going to need to examine. We're looking at a
     // box in RA and dec. In the GSC binning scheme, this translates easily to a

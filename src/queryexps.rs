@@ -26,14 +26,14 @@ use tokio::io::AsyncBufReadExt;
 
 use crate::{
     dynamo_types::plates_queryexps::*,
-    http_types::Response,
+    http_types::{HttpExposedError, HttpOptionExt, Response},
     mosaics::{
         load_b01_header, wcslib_solnum, PIXELS_PER_MM, PLATE_ID_BY_SERIES, PLATE_SCALE_BY_SERIES,
     },
     photdata::{get_limiting_records, LimitsPlateRecord},
     simple_response,
     wcs::WcsCollection,
-    USER_BUCKET, PLATES_TABLE_NAME,
+    PLATES_TABLE_NAME, USER_BUCKET,
 };
 
 /// Sync with `json-schemas/queryexps_request.json`, which then needs to be
@@ -58,7 +58,7 @@ pub async fn handler(
     bin2: &crate::gscbin::GscBinning,
 ) -> Result<Response, Error> {
     Ok(implementation(
-        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        serde_json::from_value(req.ok_or_bad_request("no request payload")?)?,
         dc,
         s3,
         bin1,
@@ -77,11 +77,11 @@ async fn implementation(
     // Early validation, with NaN-sensitive logic
 
     if !(request.ra_deg >= 0. && request.ra_deg <= 360.) {
-        return Err("illegal ra_deg parameter".into());
+        return HttpExposedError::bad_request("illegal ra_deg parameter");
     }
 
     if !(request.dec_deg >= -90. && request.dec_deg <= 90.) {
-        return Err("illegal dec_deg parameter".into());
+        return HttpExposedError::bad_request("illegal dec_deg parameter");
     }
 
     // Get the approximate list of plates from the coarse binning.
@@ -90,7 +90,12 @@ async fn implementation(
     let total_bin = bin1.get_total_bin(dec_bin, request.ra_deg);
     let s3_key = format!("dasch-dr7-coverage-bins/{}.csv", total_bin);
 
-    let resp = s3.get_object().bucket(USER_BUCKET).key(&s3_key).send().await?;
+    let resp = s3
+        .get_object()
+        .bucket(USER_BUCKET)
+        .key(&s3_key)
+        .send()
+        .await?;
     let body = resp.body.into_async_read();
     let mut lines = body.lines();
 

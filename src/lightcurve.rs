@@ -12,7 +12,7 @@ use std::collections::{hash_map::Entry, HashMap};
 
 use crate::{
     dynamo_types::refcat_lightcurve::*,
-    http_types::Response,
+    http_types::{HttpExposedError, HttpOptionExt, Response},
     make_refcat_table_name,
     photdata::{get_limiting_records, LimitsPlateRecord, MagRecord, OutputRecord},
     simple_response, USER_BUCKET,
@@ -34,7 +34,7 @@ pub async fn handler(
     bin2: &crate::gscbin::GscBinning,
 ) -> Result<Response, Error> {
     Ok(implementation(
-        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        serde_json::from_value(req.ok_or_bad_request("no request payload")?)?,
         dc,
         s3c,
         bin2,
@@ -53,7 +53,7 @@ async fn implementation(
     match request.refcat.as_ref() {
         "apass" | "atlas" => {}
         _ => {
-            return Err("illegal refcat parameter".into());
+            return HttpExposedError::bad_request("illegal refcat parameter");
         }
     }
 
@@ -79,13 +79,10 @@ async fn implementation(
         .send()
         .await?;
 
-    let item = result.item.ok_or_else(|| -> Error {
-        format!(
-            "no such source #{} in refcat {} (GSC bin {})",
-            request.ref_number, request.refcat, request.gsc_bin_index
-        )
-        .into()
-    })?;
+    let item = result.item.ok_or_not_found(format!(
+        "no such source #{} in refcat {} (GSC bin {})",
+        request.ref_number, request.refcat, request.gsc_bin_index
+    ))?;
 
     let item: RefcatItem = serde_dynamo::from_item(item)?;
 
