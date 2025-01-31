@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
-    http_types::{Body, Response, ResponseBuilder, StatusCode},
+    http_types::{Body, HttpOptionExt, Response, ResponseBuilder, StatusCode},
     INFRA_BUCKET,
 };
 
@@ -40,7 +40,7 @@ pub async fn handle_photcal_asdf(
     pc: &PresigningConfig,
 ) -> Result<Response, Error> {
     Ok(implement_photcal_asdf(
-        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        serde_json::from_value(req.ok_or_bad_request("no request payload")?)?,
         s3,
         pc,
     )

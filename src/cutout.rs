@@ -25,9 +25,9 @@ use serde_json::Value;
 
 use crate::{
     fitsfile::FitsFile,
-    http_types::Response,
+    http_types::{HttpExposedError, HttpOptionExt, Response},
     mosaics::{load_b01_header, wcslib_solnum},
-    simple_response, USER_BUCKET, PLATES_TABLE_NAME,
+    simple_response, PLATES_TABLE_NAME, USER_BUCKET,
 };
 
 /// Sync with `json-schemas/cutout_request.json`, which then needs to be
@@ -71,7 +71,7 @@ const OUTPUT_IMAGE_PIXSCALE: f64 = 0.0004; // deg/pix
 
 pub async fn handler(req: Option<Value>, dc: &aws_sdk_dynamodb::Client) -> Result<Response, Error> {
     Ok(implementation(
-        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        serde_json::from_value(req.ok_or_bad_request("no request payload")?)?,
         dc,
     )
     .await?)
@@ -95,7 +95,7 @@ impl TryFrom<isize> for DeltaRotation {
             -180 | 180 => Ok(DeltaRotation::Plus180),
             -90 | 270 => Ok(DeltaRotation::Minus90),
             90 | -270 => Ok(DeltaRotation::Plus90),
-            _ => Err(format!("illegal database deltaRotation value {n}").into()),
+            _ => HttpExposedError::bad_request(format!("illegal database deltaRotation value {n}")),
         }
     }
 }
@@ -107,11 +107,11 @@ async fn implementation(
     // Early validation, with NaN-sensitive logic
 
     if !(request.center_ra_deg >= 0. && request.center_ra_deg <= 360.) {
-        return Err("illegal center_ra_deg parameter".into());
+        return HttpExposedError::bad_request("illegal center_ra_deg parameter");
     }
 
     if !(request.center_dec_deg >= -90. && request.center_dec_deg <= 90.) {
-        return Err("illegal center_dec_deg parameter".into());
+        return HttpExposedError::bad_request("illegal center_dec_deg parameter");
     }
 
     // Get the information we need about this plate and validate the basic request.
@@ -133,32 +133,25 @@ async fn implementation(
 
     let item = result
         .item
-        .ok_or_else(|| -> Error { format!("no such plate_id `{}`", request.plate_id).into() })?;
+        .ok_or_not_found(format!("no such plate_id `{}`", request.plate_id))?;
 
     let item: PlatesResult = serde_dynamo::from_item(item)?;
-    let mos_data = item.mosaic.ok_or_else(|| -> Error {
-        format!(
-            "plate `{}` has no registered FITS mosaic information (never scanned?)",
-            request.plate_id
-        )
-        .into()
-    })?;
-    let astrom_data = item.astrometry.ok_or_else(|| -> Error {
-        format!(
-            "plate `{}` has no registered astrometric solutions",
-            request.plate_id
-        )
-        .into()
-    })?;
+    let mos_data = item.mosaic.ok_or_unprocessable(format!(
+        "plate `{}` has no registered FITS mosaic information (never scanned?)",
+        request.plate_id
+    ))?;
+    let astrom_data = item.astrometry.ok_or_unprocessable(format!(
+        "plate `{}` has no registered astrometric solutions",
+        request.plate_id
+    ))?;
 
     if request.solution_number >= astrom_data.n_solutions {
-        return Err(format!(
+        return HttpExposedError::not_found(format!(
             "requested astrometric solution #{} (0-based) for plate `{}` but it only has {} solutions",
             request.solution_number,
             request.plate_id,
             astrom_data.n_solutions
-        )
-        .into());
+        ));
     }
 
     let drot = DeltaRotation::try_from(astrom_data.rotation_delta)?;
@@ -270,11 +263,10 @@ async fn implementation(
     }
 
     if next_index == 0 {
-        return Err(format!(
+        return HttpExposedError::unprocessable_content(format!(
             "plate `{}` solnum {} does not overlap the target region",
             request.plate_id, request.solution_number,
-        )
-        .into());
+        ));
     }
 
     let n_filtered = next_index;
@@ -299,11 +291,10 @@ async fn implementation(
 
     if src_nx < 1 || src_ny < 1 {
         // With our filtering this shouldn't be possible, but just in case ...
-        return Err(format!(
+        return HttpExposedError::unprocessable_content(format!(
             "plate `{}` solnum {} does not overlap the target region",
             request.plate_id, request.solution_number,
-        )
-        .into());
+        ));
     }
 
     // Actually get the source pixels.

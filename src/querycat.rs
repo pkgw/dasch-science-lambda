@@ -9,8 +9,10 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::{
-    dynamo_types::refcat_querycat::*, gscbin::D2R, http_types::Response, make_refcat_table_name,
-    simple_response,
+    dynamo_types::refcat_querycat::*,
+    gscbin::D2R,
+    http_types::{HttpExposedError, HttpOptionExt, Response},
+    make_refcat_table_name, simple_response,
 };
 
 /// Sync with `json-schemas/querycat_request.json`, which then needs to be
@@ -29,7 +31,7 @@ pub async fn handler(
     binning: &crate::gscbin::GscBinning,
 ) -> Result<Response, Error> {
     Ok(implementation(
-        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        serde_json::from_value(req.ok_or_bad_request("no request payload")?)?,
         dc,
         binning,
     )
@@ -48,21 +50,21 @@ async fn implementation(
     match request.refcat.as_ref() {
         "apass" | "atlas" => {}
         _ => {
-            return Err("illegal refcat parameter".into());
+            return HttpExposedError::bad_request("illegal refcat parameter");
         }
     }
 
     // Use this logic style to catch NaNs:
     if !(request.ra_deg >= 0. && request.ra_deg <= 360.) {
-        return Err("illegal ra_deg parameter".into());
+        return HttpExposedError::bad_request("illegal ra_deg parameter");
     }
 
     if !(request.dec_deg >= -90. && request.dec_deg <= 90.) {
-        return Err("illegal dec_deg parameter".into());
+        return HttpExposedError::bad_request("illegal dec_deg parameter");
     }
 
     if !(request.radius_arcsec > 0. && request.radius_arcsec < 3600.) {
-        return Err("illegal radius_arcsec parameter".into());
+        return HttpExposedError::bad_request("illegal radius_arcsec parameter");
     }
 
     let cat_table = make_refcat_table_name(&request.refcat);

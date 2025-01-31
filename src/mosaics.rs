@@ -14,8 +14,11 @@ use std::{
 };
 
 use crate::{
-    dynamo_types::plates_mosaic_package::*, http_types::Response, simple_response,
-    wcs::WcsCollection, PLATES_TABLE_NAME, USER_BUCKET,
+    dynamo_types::plates_mosaic_package::*,
+    http_types::{HttpExposedError, HttpOptionExt, Response},
+    simple_response,
+    wcs::WcsCollection,
+    PLATES_TABLE_NAME, USER_BUCKET,
 };
 
 pub const PIXELS_PER_MM: f64 = 90.9090;
@@ -322,7 +325,7 @@ pub async fn handle_mosaic_package(
     pc: &PresigningConfig,
 ) -> Result<Response, Error> {
     Ok(implement_mosaic_package(
-        serde_json::from_value(req.ok_or_else(|| -> Error { "no request payload".into() })?)?,
+        serde_json::from_value(req.ok_or_bad_request("no request payload")?)?,
         dc,
         s3,
         pc,
@@ -342,7 +345,7 @@ async fn implement_mosaic_package(
         1 => true,
         16 => false,
         _ => {
-            return Err("illegal binning parameter".into());
+            return HttpExposedError::bad_request("illegal binning parameter");
         }
     };
 
@@ -358,19 +361,16 @@ async fn implement_mosaic_package(
 
     let item = result
         .item
-        .ok_or_else(|| -> Error { format!("no such plate_id `{}`", request.plate_id).into() })?;
+        .ok_or_not_found(format!("no such plate_id `{}`", request.plate_id))?;
 
     let item: PlatesResult = serde_dynamo::from_item(item)?;
 
     // With that, getting the mosaic is pretty easy.
 
-    let mos_data = item.mosaic.as_ref().ok_or_else(|| -> Error {
-        format!(
-            "plate `{}` has no registered FITS mosaic information (never scanned?)",
-            request.plate_id
-        )
-        .into()
-    })?;
+    let mos_data = item.mosaic.as_ref().ok_or_unprocessable(format!(
+        "plate `{}` has no registered FITS mosaic information (never scanned?)",
+        request.plate_id
+    ))?;
 
     let bin = if is_bin01 { "01" } else { "16" };
     let tnx = if is_bin01 { "_tnx" } else { "" };
@@ -387,6 +387,8 @@ async fn implement_mosaic_package(
         .await?
         .content_length
         .ok_or_else(|| -> Error {
+            // Not exposing as an HTTP error; a 500 that kills the server would
+            // be appropriate here, I think.
             format!("failed to get size of S3 object {}:{}", USER_BUCKET, key).into()
         })?;
 

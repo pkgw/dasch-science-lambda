@@ -118,6 +118,21 @@ impl Services {
     /// surely all about my ignorance of how Lambda works.
     pub async fn dispatch(
         &self,
+        arn: String,
+        payload: Option<Value>,
+    ) -> Result<http_types::Response, Error> {
+        match self.dispatch_inner(arn, payload).await {
+            Ok(r) => Ok(r),
+
+            Err(e) => match e.downcast::<http_types::HttpExposedError>() {
+                Ok(he) => Ok(he.try_into()?),
+                Err(e) => Err(e.into()),
+            },
+        }
+    }
+
+    async fn dispatch_inner(
+        &self,
         mut arn: String,
         payload: Option<Value>,
     ) -> Result<http_types::Response, Error> {
