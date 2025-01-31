@@ -6,6 +6,8 @@ pub type WcsPrm = *mut c_void;
 
 pub const WCSHDR_ALL: c_int = 0xFFFFF;
 
+pub const WCSERR_BAD_WORLD: c_int = 9;
+
 extern "C" {
     /// Parse FITS headers for WCS.
     pub fn wcspih(
