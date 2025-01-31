@@ -11,7 +11,14 @@
     },
     "metadata": {
       "type": "object",
-      "description": "Detailed metadata about the plate"
+      "description": "Detailed metadata about the plate (this schema is incomplete)",
+      "properties": {
+        "series": {
+          "type": "string",
+          "description": "The plate series"
+        }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": false,
