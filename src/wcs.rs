@@ -171,7 +171,7 @@ impl<'a> Wcs<'a> {
         let mut pixel = Array::<f64, _>::uninit(world.dim());
         let mut status = Array::<c_int, _>::uninit((world.shape()[0], world.shape()[1]));
 
-        try_wcslib!(unsafe {
+        let status_code = unsafe {
             wcslib::wcss2p(
                 self.handle,
                 ncoord as c_int,
@@ -183,7 +183,16 @@ impl<'a> Wcs<'a> {
                 pixel.as_mut_ptr() as *mut _,
                 status.as_mut_ptr() as *mut _,
             )
-        });
+        };
+
+        // `BAD_WORLD` can happen if one or more of the input world coordinates
+        // can't be mapped to pixel coords successfully. (This can happen with
+        // distortions if the requested world coords are way way off the image.)
+        // Since we're honoring the per-pixel success flags, we can continue as
+        // normal in that case.
+        if status_code != 0 && status_code != wcslib::WCSERR_BAD_WORLD {
+            bail!("wcslib error code {} in wcss2p", status_code);
+        }
 
         let mut pixel = unsafe { pixel.assume_init() };
         let status = unsafe { status.assume_init() };
